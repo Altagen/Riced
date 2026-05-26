@@ -41,6 +41,12 @@ type fakeApplyEnvironment struct {
 
 func setupFakeApply(t *testing.T) *fakeApplyEnvironment {
 	t.Helper()
+	// Force the XDG fallbacks to HomeDir-based defaults, otherwise a CI
+	// runner whose env carries XDG_*_HOME would route writes outside the
+	// test's temp tree (caught the hard way on the initial main push).
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+
 	home := t.TempDir()
 	buildDir := filepath.Join(t.TempDir(), "s4-test")
 
