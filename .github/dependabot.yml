@@ -1,0 +1,38 @@
+version: 2
+
+# All Dependabot PRs target `develop`, never `main`. The `main` branch
+# is for release merges from develop only (see .github/workflows/main-pr-policy.yml).
+# Auto-merge for non-major patches is handled by dependabot-automerge.yml.
+
+updates:
+  # Go module dependencies.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+    labels:
+      - "dependencies"
+      - "go"
+
+  # GitHub Actions used by every workflow file under .github/workflows/.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci(deps)"
+    labels:
+      - "dependencies"
+      - "github-actions"

@@ -1,0 +1,85 @@
+name: Security Scan
+
+# Weekly deep security pass plus on-demand `workflow_dispatch`. Distinct
+# from ci.yml so a slow CodeQL run never blocks a PR merge — CI handles
+# the fast surface (vet/lint/test/govulncheck) and this job handles the
+# slower / more thorough checks (extended CodeQL queries + SBOM).
+on:
+  schedule:
+    - cron: '0 9 * * 1'   # Mondays at 09:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  govulncheck:
+    name: Go Vulnerability Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  codeql-go:
+    name: CodeQL (Go, extended)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          # security-extended adds queries beyond the default set; we run
+          # the slow ones here weekly instead of on every PR.
+          queries: security-extended,security-and-quality
+
+      - name: Build Go
+        run: go build ./...
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:go"
+
+  sbom:
+    name: Weekly SBOM (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install cyclonedx-gomod
+        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
+
+      - name: Generate Go SBOM
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          cyclonedx-gomod mod -json -output sbom-go-${DATE}.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-weekly-${{ github.run_id }}
+          path: sbom-*.json
+          retention-days: 90

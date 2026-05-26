@@ -1,0 +1,36 @@
+name: Dependabot auto-merge
+
+# Auto-merge Dependabot PRs against develop when they're safe:
+#   - non-major upgrades (patch + minor)
+#   - non-github-actions ecosystems (Actions updates we review by hand,
+#     because a bad action upgrade can break every workflow at once).
+#
+# Major upgrades and GitHub Actions PRs still require manual review.
+
+on:
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Auto-merge Dependabot PR
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - uses: dependabot/fetch-metadata@v2
+        id: metadata
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Enable auto-merge (patch and minor only, non-actions)
+        if: |
+          steps.metadata.outputs.package-ecosystem != 'github_actions' &&
+          steps.metadata.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

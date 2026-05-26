@@ -1,0 +1,35 @@
+name: Main PR policy
+
+# Enforce GitFlow on the protected `main` branch: only `release/*` and
+# `hotfix/*` branches (or `develop` itself, for the normal release flow)
+# may target main. Anything else — including Dependabot PRs whose base
+# ended up on main by accident — gets rejected at the policy check so we
+# don't silently bypass develop.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  enforce-source-branch:
+    name: Enforce source branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check source branch
+        env:
+          HEAD: ${{ github.head_ref }}
+        run: |
+          case "$HEAD" in
+            release/*|hotfix/*|develop)
+              echo "✓ Source branch '$HEAD' is allowed for main."
+              ;;
+            *)
+              echo "::error::PRs into 'main' must come from release/*, hotfix/*, or develop."
+              echo "::error::Got: '$HEAD'. Re-target this PR to 'develop' instead."
+              exit 1
+              ;;
+          esac
