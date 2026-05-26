@@ -1,0 +1,35 @@
+# Taplo configuration. Affects `taplo format` and `taplo format --check` for
+# every TOML file in this repo. We're conservative: only enforce formatting
+# we actually care about (consistent indent + trailing newline), nothing that
+# would shuffle keys around and obscure intent.
+
+include = [ "**/*.toml" ]
+exclude = [
+  "build/**",
+  "vendor/**",
+  ".git/**",
+]
+
+[formatting]
+align_entries = false
+column_width = 100
+indent_string = "  "
+reorder_keys = false          # honor manual ordering -- we group meta/palette/wallpapers on purpose
+reorder_arrays = false
+trailing_newline = true
+array_auto_collapse = false
+array_auto_expand = true
+compact_arrays = false
+compact_inline_tables = false
+
+# Attach the JSON Schema to every theme.toml so editors with taplo LSP
+# (VSCode, Helix, Zed via the taplo extension) get autocomplete and
+# inline validation. We deliberately exclude internal/manifest/testdata/
+# because those fixtures contain INTENTIONALLY invalid manifests used
+# by the runtime validator tests.
+[[rule]]
+include = [ "**/theme.toml" ]
+exclude = [ "internal/manifest/testdata/**" ]
+
+[rule.schema]
+path = "schemas/theme.schema.json"

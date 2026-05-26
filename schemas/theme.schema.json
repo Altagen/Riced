@@ -1,0 +1,244 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Altagen/Riced/schemas/theme.schema.json",
+  "title": "Riced theme manifest",
+  "description": "Schema for a Riced theme.toml. Drives editor autocomplete and inline validation through the taplo LSP. The canonical contract — Go's manifest.Manifest mirrors this file. When a field changes here, also update internal/manifest and docs/MANIFEST.md.",
+  "type": "object",
+  "required": ["schema_version", "meta"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Manifest schema version. Must be 1. Future breaking changes will bump this; additive fields keep version 1."
+    },
+    "meta": { "$ref": "#/$defs/Meta" },
+    "palette": { "$ref": "#/$defs/Palette" },
+    "wallpapers": { "$ref": "#/$defs/Wallpapers" },
+    "panel": { "$ref": "#/$defs/Panel" },
+    "window": { "$ref": "#/$defs/Window" },
+    "fonts": { "$ref": "#/$defs/Fonts" },
+    "terminal": { "$ref": "#/$defs/Terminal" }
+  },
+  "$defs": {
+    "Meta": {
+      "type": "object",
+      "required": ["name", "slug"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable theme name. Shown in `riced themes` / `riced list`."
+        },
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+          "description": "Kebab-case identifier unique within the repository. Used as the filename stem of every generated artifact (e.g. <slug>.colors)."
+        },
+        "mode": {
+          "enum": ["dark", "light"],
+          "description": "Color mode this manifest targets. Optional — ship the modes you have; Riced won't enforce dark/light pairs."
+        },
+        "theme": {
+          "type": "string",
+          "description": "Optional design-family identifier (e.g. \"red\", \"mixed\"). Themes sharing this value are grouped together in `riced themes`. Purely informational."
+        },
+        "author": {
+          "type": "string",
+          "description": "Free-form author / maintainer string."
+        },
+        "inherits": {
+          "type": "string",
+          "description": "Slug of a parent theme whose fields are merged underneath this one. Parent is searched among siblings, then in ~/.riced/themes, then in registered repositories. Multi-level chains and cycle detection are supported."
+        }
+      }
+    },
+
+    "HexColor": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$",
+      "description": "Hex color, either #RRGGBB or #RRGGBBAA (case-insensitive)."
+    },
+
+    "Palette": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Named colors driving every renderer. bg / text / accent are required AFTER the inheritance chain is fully resolved — the schema doesn't enforce that on a single file because child themes inherit those from their parent. The runtime `riced validate` checks the merged result.",
+      "properties": {
+        "bg":      { "$ref": "#/$defs/HexColor", "description": "Window / panel background." },
+        "surface": { "$ref": "#/$defs/HexColor", "description": "Elevated surfaces: cards, popovers, tooltips." },
+        "text":    { "$ref": "#/$defs/HexColor", "description": "Primary foreground text." },
+        "subtext": { "$ref": "#/$defs/HexColor", "description": "Secondary text — captions, hints." },
+        "muted":   { "$ref": "#/$defs/HexColor", "description": "Disabled / placeholder text." },
+        "accent":  { "$ref": "#/$defs/HexColor", "description": "Primary accent: selection, highlight, focus." },
+        "accent2": { "$ref": "#/$defs/HexColor", "description": "Secondary accent (often the hover color)." },
+        "accent3": { "$ref": "#/$defs/HexColor", "description": "Tertiary accent (often the visited-link color)." },
+        "warning": { "$ref": "#/$defs/HexColor", "description": "Warning / caution color." },
+        "error":   { "$ref": "#/$defs/HexColor", "description": "Error / destructive action color." }
+      }
+    },
+
+    "RelativeAssetPath": {
+      "type": "string",
+      "minLength": 1,
+      "allOf": [
+        {
+          "not": { "pattern": "^/" },
+          "description": "Must be relative to the theme directory — absolute paths are rejected to keep manifests portable."
+        },
+        {
+          "not": { "pattern": "(^|/)\\.\\.(/|$)" },
+          "description": "Path traversal segments ('..') are rejected. Filesystem symlinks at the theme dir level are how you point outside the theme."
+        }
+      ],
+      "description": "Path to an asset (image, icon) inside the theme directory. Symlinks at the filesystem level are allowed and how you share a wallpaper pool across variants."
+    },
+
+    "Wallpapers": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Wallpaper configuration. `single` mode picks the first path; `slideshow` rotates through all of them. For multi-screen rigs, [[screens]] takes precedence over the flat `paths` list.",
+      "properties": {
+        "mode": {
+          "enum": ["single", "slideshow"],
+          "default": "single",
+          "description": "Wallpaper plugin: a single image or a folder slideshow."
+        },
+        "interval": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "Seconds between slides. Required when mode = \"slideshow\"."
+        },
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/RelativeAssetPath" },
+          "description": "Ordered list of wallpaper file paths, relative to the theme directory. Spread to every screen by default."
+        },
+        "mirror": {
+          "type": "boolean",
+          "description": "Reserved for explicit mirror semantics. Today behaves the same as a flat paths list spread to every screen. Mutually exclusive with [[screens]]."
+        },
+        "screens": {
+          "type": "array",
+          "description": "Per-screen wallpaper lists. Each entry binds a screen index (Plasma's desktop.screen, 0-based) to its own image list. Overrides `paths` when present.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "paths": {
+                "type": "array",
+                "items": { "$ref": "#/$defs/RelativeAssetPath" },
+                "minItems": 1
+              }
+            },
+            "required": ["index", "paths"]
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "slideshow" } }, "required": ["mode"] },
+          "then": { "required": ["interval"] }
+        }
+      ]
+    },
+
+    "Panel": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plasma panel layout: position, floating mode, and the launcher icon override.",
+      "properties": {
+        "position": {
+          "enum": ["top", "bottom", "left", "right"],
+          "description": "Which screen edge the panel docks to."
+        },
+        "floating": {
+          "type": "boolean",
+          "description": "Plasma's floating panel mode (panel detaches from the screen edge with a gap)."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Panel thickness in pixels. 0 means \"Plasma default\"."
+        },
+        "launcher_icon": {
+          "$ref": "#/$defs/RelativeAssetPath",
+          "description": "Path to an image file used as the application launcher icon. Replaces CachyOS's default \"C\" / KDE's blue rocket."
+        }
+      }
+    },
+
+    "Window": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Window decoration + KWin compositor effects.",
+      "properties": {
+        "decoration": {
+          "enum": ["klassy", "breeze"],
+          "description": "Window decoration library. klassy must be installed via paru/yay; breeze ships with Plasma."
+        },
+        "animations": {
+          "enum": ["magic-lamp", "scale", "glide", "fade", "none"],
+          "description": "Minimize/restore animation. Only one is enabled at a time — Riced disables the others when applying."
+        },
+        "animation_speed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6,
+          "description": "kwinrc [Compositing] AnimationSpeed slider position. 0=instant, 3=KDE default, 6=very slow. Omit to leave the user's current setting alone."
+        },
+        "animation_duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "description": "Override the active animation's duration in milliseconds. Bypasses the AnimationSpeed slider cap (~1s at speed 6). Written to [Effect-<animations>] AnimationDuration in kwinrc."
+        },
+        "blur": {
+          "type": "boolean",
+          "description": "Enable KWin's blur effect behind translucent windows."
+        },
+        "wobbly": {
+          "type": "boolean",
+          "description": "Enable KWin's wobbly-windows effect. Heavy on the eyes — off by default."
+        }
+      }
+    },
+
+    "Fonts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Font family overrides. Riced does not bundle fonts — the families must already be installed on the target system.",
+      "properties": {
+        "ui": {
+          "type": "string",
+          "minLength": 1,
+          "description": "UI font family (e.g. \"Inter\", \"Cantarell\")."
+        },
+        "mono": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Monospace font family for Konsole and code (e.g. \"JetBrains Mono\")."
+        }
+      }
+    },
+
+    "Terminal": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Konsole terminal settings.",
+      "properties": {
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Background opacity. 1.0 = fully opaque, 0.0 = fully transparent. Lands in the .colorscheme's [General] Opacity key."
+        }
+      }
+    }
+  }
+}

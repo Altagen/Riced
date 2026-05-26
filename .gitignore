@@ -1,0 +1,30 @@
+# Build output
+/bin/
+/dist/
+
+# Go
+*.test
+*.out
+coverage.*
+vendor/
+
+# Local user state — never committed even if someone runs `riced apply`
+# from the repo root by accident.
+/.riced/
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local-only scratch
+/tmp/
+/.scratch/
+
+# Backup files from doc edits (taplo / sed `-i.bak`, etc.)
+*.bak
+*.orig
+
+# Node tooling pulled in by CI commitlint (never committed to a Go repo)
+node_modules/

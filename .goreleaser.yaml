@@ -1,0 +1,73 @@
+# GoReleaser configuration for Riced.
+# Triggered by pushing a semver tag WITHOUT a 'v' prefix (e.g. 0.1.0).
+# Produces multi-arch static binaries plus checksums and an auto-changelog
+# drawn from Conventional-Commits-style git history.
+#
+# Local dry-run:
+#   make release-snapshot
+
+version: 2
+
+project_name: riced
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: riced
+    main: ./cmd/riced
+    binary: riced
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      # Match the Makefile so binary metadata is consistent across both paths.
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .Date }}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats:
+      - tar.gz
+    files:
+      - README.md
+      - docs/*.md
+      # LICENSE is intentionally absent until we pick a license (README says TBD).
+      # Add 'LICENSE*' here once the file exists.
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^chore:"
+      - "^test:"
+      - "^ci:"
+      - "Merge pull request"
+
+release:
+  prerelease: auto
+  draft: false
+  mode: replace
+  header: |
+    Riced {{ .Tag }} -- theme-as-code engine for KDE Plasma.
+
+    Download the binary for your platform below, drop it in `~/.local/bin/`,
+    and `riced help` to get started.
