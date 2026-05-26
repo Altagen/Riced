@@ -1,0 +1,23 @@
+# Riced wallpaper descriptor.
+#
+# Apply by merging the section below into the relevant
+#   [Containments][<N>][Wallpaper]
+# block of ~/.config/plasma-org.kde.plasma.desktop-appletsrc, then run
+#   qdbus org.kde.KWin /KWin reconfigure
+# Riced's apply layer (Phase 8) will do this for you.
+
+wallpaperPlugin={{ .Plugin }}
+
+{{- if eq .Mode "slideshow" }}
+
+[Wallpaper][org.kde.slideshow][General]
+FillMode={{ .FillMode }}
+SlideInterval={{ .Interval }}
+SlidePaths={{ .Path }}
+SortingMode={{ .SortingMode }}
+{{- else }}
+
+[Wallpaper][org.kde.image][General]
+FillMode={{ .FillMode }}
+Image={{ .Path }}
+{{- end }}
