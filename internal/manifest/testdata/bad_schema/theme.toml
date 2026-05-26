@@ -1,0 +1,13 @@
+schema_version = 99
+
+[meta]
+name = "Bad"
+slug = "bad"
+
+[palette]
+bg = "#000000"
+text = "#ffffff"
+accent = "#ff0000"
+
+[wallpapers]
+paths = [ "wall.png" ]

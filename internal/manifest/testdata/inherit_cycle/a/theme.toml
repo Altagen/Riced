@@ -1,0 +1,14 @@
+schema_version = 1
+
+[meta]
+name = "A"
+slug = "a"
+inherits = "b"
+
+[palette]
+bg = "#000000"
+text = "#ffffff"
+accent = "#ff0000"
+
+[wallpapers]
+paths = [ "wall.png" ]

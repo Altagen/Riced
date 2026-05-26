@@ -1,0 +1,11 @@
+schema_version = 1
+
+[meta]
+name = "Grandchild"
+slug = "grandchild"
+inherits = "child"
+
+# Two-level inheritance: this overrides bg, gets accent from child, gets text
+# and wallpapers from base.
+[palette]
+bg = "#000000"

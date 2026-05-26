@@ -1,0 +1,30 @@
+schema_version = 1
+
+[meta]
+name = "Base"
+slug = "base"
+mode = "dark"
+
+[palette]
+bg = "#0a0a14"
+surface = "#14141f"
+text = "#e8e8f0"
+accent = "#ffffff"
+
+[wallpapers]
+mode = "single"
+paths = [ "wall.png" ]
+
+[panel]
+position = "bottom"
+floating = true
+launcher_icon = "icon.png"
+
+[window]
+decoration = "klassy"
+animations = "magic-lamp"
+blur = true
+
+[fonts]
+ui = "Inter"
+mono = "JetBrains Mono"

@@ -1,0 +1,13 @@
+schema_version = 1
+
+[meta]
+name = "Missing Wall"
+slug = "missing-wall"
+
+[palette]
+bg = "#000000"
+text = "#ffffff"
+accent = "#ff0000"
+
+[wallpapers]
+paths = [ "nope.png" ]

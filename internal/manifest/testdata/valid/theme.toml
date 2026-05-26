@@ -1,0 +1,43 @@
+schema_version = 1
+
+[meta]
+name = "Test Dark"
+slug = "test-dark"
+mode = "dark"
+author = "Riced tests"
+
+[palette]
+bg = "#0a0a14"
+surface = "#14141f"
+text = "#e8e8f0"
+subtext = "#a0a0b8"
+muted = "#6a6a80"
+accent = "#ff2a4b"
+accent2 = "#1ec8ff"
+accent3 = "#b020f0"
+warning = "#ffcc00"
+error = "#ff5050"
+
+[wallpapers]
+mode = "slideshow"
+interval = 600
+paths = [ "wall1.png", "wall2.png" ]
+
+[panel]
+position = "bottom"
+floating = true
+height = 44
+launcher_icon = "icon.png"
+
+[window]
+decoration = "klassy"
+animations = "magic-lamp"
+blur = true
+wobbly = false
+
+[fonts]
+ui = "Inter"
+mono = "JetBrains Mono"
+
+[terminal]
+opacity = 0.92

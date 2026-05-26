@@ -1,0 +1,12 @@
+schema_version = 1
+
+[meta]
+name = "Missing Required"
+slug = "missing-required"
+
+# palette.bg, palette.text, palette.accent are all required and absent
+[palette]
+surface = "#101010"
+
+[wallpapers]
+paths = [ "wall.png" ]

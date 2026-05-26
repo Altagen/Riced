@@ -1,0 +1,11 @@
+schema_version = 1
+
+[meta]
+name = "Child"
+slug = "child"
+inherits = "base"
+
+# Only the accent differs. Everything else (palette.bg, palette.text,
+# wallpapers, panel, window, fonts) is pulled from base.
+[palette]
+accent = "#ff2a4b"

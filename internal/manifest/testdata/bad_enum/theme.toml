@@ -1,0 +1,22 @@
+schema_version = 1
+
+[meta]
+name = "Bad Enum"
+slug = "bad-enum"
+mode = "purple"
+
+[palette]
+bg = "#000000"
+text = "#ffffff"
+accent = "#ff0000"
+
+[wallpapers]
+mode = "carousel"
+paths = [ "wall.png" ]
+
+[panel]
+position = "diagonal"
+
+[window]
+decoration = "fancy"
+animations = "explode"

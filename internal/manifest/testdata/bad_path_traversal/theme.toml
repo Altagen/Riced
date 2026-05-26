@@ -1,0 +1,13 @@
+schema_version = 1
+
+[meta]
+name = "Bad Path"
+slug = "bad-path"
+
+[palette]
+bg = "#000000"
+text = "#ffffff"
+accent = "#ff0000"
+
+[wallpapers]
+paths = [ "../../../etc/passwd" ]
