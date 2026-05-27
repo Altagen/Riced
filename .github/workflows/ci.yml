@@ -2,15 +2,42 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
+  security-events: write
+  pull-requests: read
 
 jobs:
+  # Conventional Commits enforcement (PRs only).
+  commitlint:
+    name: Commit Lint
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Install commitlint
+        run: npm install -g @commitlint/cli @commitlint/config-conventional
+
+      - name: Validate commits
+        run: |
+          npx commitlint \
+            --from ${{ github.event.pull_request.base.sha }} \
+            --to ${{ github.event.pull_request.head.sha }} \
+            --verbose
+
   build-and-test:
+    name: Build and Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +45,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
+          go-version-file: go.mod
           cache: true
 
       - name: go mod tidy (verify)
@@ -26,6 +53,9 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum || \
             (echo "go.mod or go.sum is out of date -- run 'make tidy' locally" && exit 1)
+
+      - name: gofmt
+        run: test -z "$(gofmt -l ./internal ./cmd)"
 
       - name: Vet
         run: go vet ./...
@@ -42,18 +72,20 @@ jobs:
           ./bin/riced version
 
   lint:
+    name: golangci-lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.23'
+          go-version-file: go.mod
           cache: true
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v1.62
 
   lint-toml:
+    name: TOML lint
     runs-on: ubuntu-latest
     env:
       TAPLO_VERSION: "0.9.3"
@@ -67,6 +99,59 @@ jobs:
       - name: Check TOML formatting
         run: taplo format --check
       - name: Validate TOML against JSON Schema
-        # Same step `make lint-toml` runs locally; catches manifest typos
-        # (wrong enum value, bad hex, unknown key) at PR time.
         run: taplo lint
+
+  # Go vulnerability check against the upstream govulndb.
+  govulncheck:
+    name: Go Vulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+  # CodeQL static analysis (Go).
+  codeql-go:
+    name: CodeQL (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: go
+          queries: security-and-quality
+
+      - name: Build Go
+        run: go build ./...
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:go"
+
+  # Reviewer-facing dependency diff (PR only). Surfaces any new module
+  # with a known CVE >= high before the PR is merged.
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
