@@ -274,25 +274,73 @@ List installed candidates with `kpackagetool6 -t Plasma/LookAndFeel --list`. New
 
 ---
 
-## `[[external_packages]]` — KDE Store downloads
+## `[[looks]]` — community theme assets
 
-Themes from [store.kde.org](https://store.kde.org/) (or any HTTPS host) Riced will download + install **before** the rest of the manifest runs. Each entry produces one `external` action in the apply plan that the user reviews before consent.
+Themes from [store.kde.org](https://store.kde.org/), github releases, or local git clones that Riced installs **before** the rest of the manifest runs. Each entry produces one `external` action in the apply plan that the user reviews before consent.
+
+### Sources: URL or Local
+
+Exactly one of `url` (with mandatory `sha256`) or `local` (without `sha256`) per entry.
+
+**URL** — Riced downloads, sha256-verifies, then dispatches to the install strategy:
+```toml
+[[looks]]
+name   = "Tela Dark Icons"
+type   = "icons"
+url    = "https://github.com/vinceliuice/Tela-icon-theme/archive/refs/tags/2024-04-20.tar.gz"
+sha256 = "abc...64chars"
+install = "script"           # required because Tela ships install.sh, not extract-ready
+script  = "install.sh"
+args    = ["-d", "$HOME/.local/share/icons"]
+```
+
+**Local** — Riced points at a user-managed clone under `~/.riced/looks/<name>/`. Symmetric with `~/.riced/repositories/`: the user owns `git clone` / `git pull`, Riced just runs the install strategy on the local dir:
+```bash
+git clone https://github.com/foo/CustomIcons ~/.riced/looks/custom-icons
+```
+```toml
+[[looks]]
+name    = "Custom Icons"
+type    = "icons"
+local   = "custom-icons"
+install = "script"
+script  = "./install.sh"
+```
+
+Local sources skip sha256 (trust = whatever the user cloned), parallel to how `riced repo add` treats theme repositories. Reasoning in [`docs/REPOSITORIES.md`](REPOSITORIES.md#why-no-git-clone--git-pull-inside-riced).
+
+### Install strategies
+
+| `install` | Behavior |
+|---|---|
+| `auto` (default) | Inspect the (normalized) source: `metadata.json` at root → `kpackage`; `index.theme` at root → `extract`; `install.sh` present → refuse (asks user to set `install = "script"` explicitly). |
+| `kpackage` | `kpackagetool6 -t <type> -i <source>` (with `-u` upgrade fallback). |
+| `extract` | Copy contents into `~/.local/share/icons/`. |
+| `script` | Exec `/bin/bash <source>/<script> <args...>`. Requires explicit opt-in. |
+
+**Normalize step** runs before any strategy: if the source root has a single subdirectory and nothing else (the github-source layout `<repo>-<tag>/...`), Riced descends into it. So `script = "install.sh"` works whether the tarball wraps everything in `Tela-icon-theme-2024-04-20/` or not — the user doesn't need to know the wrapper name.
+
+**Script safety**:
+- `script` must be a **relative** path inside the (normalized) source (no `..`, no leading `/`).
+- `args` supports `$HOME` / `$XDG_DATA_HOME` / `$XDG_CONFIG_HOME` expansion only — no shell substitution, no other env reads.
+- The exact command lands in the apply plan for user consent before execution.
+- `auto` NEVER picks `script` silently. Explicit opt-in is required.
 
 ### Where to find packages
 
-- **[store.kde.org](https://store.kde.org/)** — the official KDE store. Filter by category: *Global Themes*, *Plasma Themes*, *Icon Themes*, *Cursors*, *Window Decorations*. Each product page has a Download button — right-click → copy link to get the stable URL (`https://files.pling.com/.../...tar.xz`).
+- **[store.kde.org](https://store.kde.org/)** — the official KDE store. Filter by category: *Global Themes*, *Plasma Themes*, *Icon Themes*, *Cursors*, *Window Decorations*. Each product page has a Download button — right-click → copy link.
 - **[kde-look.org](https://www.pling.com/browse/cat/100/)** — alias of store.kde.org with the same content.
-- **GitHub releases** — some popular authors (Vinceliuice's WhiteSur/Layan, Dracula, Tokyo Night) publish parallel github releases. Look for proper kpackage archives (containing `metadata.json` at the root), **not** source repository tarballs — `archive/refs/tags/*.tar.gz` won't install via `kpackagetool6` because the contents sit under an extra `<repo>-<tag>/` directory.
+- **GitHub releases** — many popular authors (Vinceliuice's WhiteSur/Layan, Tela, Dracula, Tokyo Night) publish parallel github releases. `archive/refs/tags/*.tar.gz` is fine with `install = "script"`; for `install = "kpackage"` you need a kpackage-shaped tarball (with `metadata.json` at the root) which most github source archives don't provide.
 
 ### Computing the SHA-256
 
 ```bash
-curl -L -o pack.tar.xz "<the URL>"
-sha256sum pack.tar.xz
-# → 4e9d4...  pack.tar.xz
+curl -L -o pack.tar.gz "<the URL>"
+sha256sum pack.tar.gz
+# → 4e9d4...  pack.tar.gz
 ```
 
-Paste the 64-char hex into the manifest. Riced refuses to install without it: the hash is the only thing standing between a trusted manifest and a swapped-out malicious archive.
+Paste the 64-char hex into the manifest. Riced refuses to install without it: the hash is the only thing standing between a trusted manifest and a swapped-out malicious archive. Local sources skip this check by design.
 
 | Key | Type | Notes |
 |---|---|---|
