@@ -281,15 +281,32 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 		})
 	}
 
-	// External KDE Store packages first: subsequent actions (lookandfeel,
-	// apply-desktop-theme) may reference packages that don't exist yet on
-	// the user's machine, and those packages must be installed before any
-	// reference resolves.
-	for _, p := range m.External {
+	// Looks (external theme assets) first: subsequent actions
+	// (lookandfeel, apply-desktop-theme, [icons].theme) may reference
+	// names this Looks loop installs.
+	//
+	// Action.Args encoding (positional):
+	//   Args[0]   = type (Plasma/LookAndFeel | icons | ...)
+	//   Args[1]   = source ("url:<url>" or "local:<name>")
+	//   Args[2]   = sha256 ("" for local)
+	//   Args[3]   = install strategy (auto | kpackage | extract | script)
+	//   Args[4]   = script relative path ("" unless install=script)
+	//   Args[5:]  = script args (env-expanded at apply time)
+	for _, p := range m.Looks {
+		install := p.Install
+		if install == "" {
+			install = "auto"
+		}
+		source := "url:" + p.URL
+		if p.Local != "" {
+			source = "local:" + p.Local
+		}
+		args := []string{p.Type, source, p.SHA256, install, p.Script}
+		args = append(args, p.Args...)
 		plan.Actions = append(plan.Actions, Action{
 			Kind: "external",
 			Src:  p.Name,
-			Args: []string{p.Type, p.URL, p.SHA256},
+			Args: args,
 		})
 	}
 

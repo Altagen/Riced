@@ -2,8 +2,8 @@ package apply_test
 
 import (
 	"errors"
-	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -843,28 +843,70 @@ func TestApply_F17LookAndFeelComesFirst(t *testing.T) {
 	}
 }
 
-// TestApply_F18ExternalPackages verifies F18: external_packages emit
-// Kind="external" actions FIRST in the plan and route through the
-// Download + InstallExternalPackage path at Execute time.
-func TestApply_F18ExternalPackages(t *testing.T) {
-	env := setupFakeApply(t)
-	env.Manifest.External = []manifest.ExternalPkg{
-		{
-			Name:   "Test LookAndFeel",
-			Type:   "Plasma/LookAndFeel",
-			URL:    "https://example.invalid/laf.tar.gz",
-			SHA256: "0000000000000000000000000000000000000000000000000000000000000000",
-		},
+// makeTarGz creates a .tar.gz archive at archivePath whose contents are
+// `files` (relative path -> file body). Used by F19 tests to stage a
+// realistic source archive without a network call.
+func makeTarGz(t *testing.T, archivePath string, files map[string]string) {
+	t.Helper()
+	stagedir := filepath.Join(t.TempDir(), "stage")
+	for rel, body := range files {
+		full := filepath.Join(stagedir, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
+	if err := os.MkdirAll(filepath.Dir(archivePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("tar", "-czf", archivePath, "-C", stagedir, ".")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("tar: %v\n%s", err, out)
+	}
+}
+
+// fixedDownloader returns a download stub that copies a pre-staged local
+// archive to the cache dst, ignoring URL + sha256 verification. Used so
+// F19 tests run offline.
+func fixedDownloader(t *testing.T, sourceArchive string) apply.ExternalDownloader {
+	t.Helper()
+	return func(_, _, dst string) error {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		in, err := os.ReadFile(sourceArchive)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(dst, in, 0o644)
+	}
+}
+
+// TestApply_F19LookKPackageAutoDetect: archive with metadata.json at the
+// root -> auto-detect = kpackage -> KDE adapter receives the archive
+// path (kpackagetool6 prefers the archive over the extracted dir).
+func TestApply_F19LookKPackageAutoDetect(t *testing.T) {
+	env := setupFakeApply(t)
+	archive := filepath.Join(t.TempDir(), "laf.tar.gz")
+	makeTarGz(t, archive, map[string]string{
+		"metadata.json":     `{"X-KDE-PluginInfo-Name":"com.example.test"}`,
+		"contents/main.qml": "// placeholder\n",
+	})
+	env.Manifest.Looks = []manifest.Look{{
+		Name:   "Test LookAndFeel",
+		Type:   "Plasma/LookAndFeel",
+		URL:    "https://example.invalid/laf.tar.gz",
+		SHA256: "0000000000000000000000000000000000000000000000000000000000000000",
+		// Install left empty -> default "auto"
+	}}
 
 	plan, _ := apply.Build(env.Manifest, env.BuildDir,
 		apply.Targets{HomeDir: env.Home},
 		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
 
-	// First "external" action must be at the very top of the actions list
-	// among any side-effect, before mkdir/copy/symlink even? Actually plan
-	// keeps file ops first, KDE-domain second. external lives in the KDE
-	// domain. Verify it comes before any KDE action.
+	// External action must precede every kde action.
 	var extIdx, firstKDEIdx int = -1, -1
 	for i, a := range plan.Actions {
 		if a.Kind == "external" && extIdx == -1 {
@@ -875,50 +917,182 @@ func TestApply_F18ExternalPackages(t *testing.T) {
 		}
 	}
 	if extIdx == -1 {
-		t.Fatalf("no external action in plan\n%s", plan.Format())
+		t.Fatalf("no external action emitted\n%s", plan.Format())
 	}
 	if firstKDEIdx != -1 && extIdx >= firstKDEIdx {
-		t.Errorf("external action must precede every kde action; got ext=%d first-kde=%d", extIdx, firstKDEIdx)
+		t.Errorf("external must come before any kde action; ext=%d first-kde=%d", extIdx, firstKDEIdx)
 	}
 
-	// Execute with an injected download stub that records the call and
-	// pretends success. Real DefaultDownload would try to hit example.invalid.
-	var downloadedURL, downloadedSHA, downloadedDst string
-	fakeDownload := func(url, sha, dst string) error {
-		downloadedURL, downloadedSHA, downloadedDst = url, sha, dst
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
-		return os.WriteFile(dst, []byte("fake-archive"), 0o644)
-	}
 	if err := apply.Execute(plan, apply.ExecOptions{
 		KDE:      env.KDE,
 		Now:      func() time.Time { return env.Now },
-		Download: fakeDownload,
+		Download: fixedDownloader(t, archive),
 		HomeDir:  env.Home,
 	}); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	if downloadedURL != "https://example.invalid/laf.tar.gz" {
-		t.Errorf("download URL = %q, want example.invalid/laf.tar.gz", downloadedURL)
-	}
-	if downloadedSHA != "0000000000000000000000000000000000000000000000000000000000000000" {
-		t.Errorf("download SHA passed wrong")
-	}
-	if !strings.HasPrefix(downloadedDst, filepath.Join(env.Home, ".riced/cache/external")) {
-		t.Errorf("download dst %q is not under ~/.riced/cache/external", downloadedDst)
-	}
-	// FakeKDE must have received InstallExternalPackage.
-	wantCall := fmt.Sprintf("InstallExternalPackage:Plasma/LookAndFeel|%s", downloadedDst)
+	// FakeKDE.KPackageInstall must have been called with type + cached archive.
 	found := false
 	for _, c := range env.KDE.Calls {
-		if c == wantCall {
+		if strings.HasPrefix(c, "KPackageInstall:Plasma/LookAndFeel|") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("FakeKDE.Calls missing %q\ngot: %v", wantCall, env.KDE.Calls)
+		t.Errorf("KPackageInstall not invoked. Calls:\n  %v", env.KDE.Calls)
+	}
+}
+
+// TestApply_F19LookExtractWithWrapperStrip: archive whose root has a
+// single subdir "MyIcons/" with index.theme inside -> normalize strips
+// the wrapper, auto-detect = extract, target = ~/.local/share/icons/.
+func TestApply_F19LookExtractWithWrapperStrip(t *testing.T) {
+	env := setupFakeApply(t)
+	archive := filepath.Join(t.TempDir(), "icons.tar.gz")
+	makeTarGz(t, archive, map[string]string{
+		"MyIcons-1.0/index.theme":        "[Icon Theme]\nName=MyIcons\n",
+		"MyIcons-1.0/16x16/apps/foo.svg": "<svg/>\n",
+	})
+	env.Manifest.Looks = []manifest.Look{{
+		Name:   "MyIcons",
+		Type:   "icons",
+		URL:    "https://example.invalid/icons.tar.gz",
+		SHA256: "0000000000000000000000000000000000000000000000000000000000000000",
+	}}
+
+	plan, _ := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+
+	if err := apply.Execute(plan, apply.ExecOptions{
+		KDE:      env.KDE,
+		Now:      func() time.Time { return env.Now },
+		Download: fixedDownloader(t, archive),
+		HomeDir:  env.Home,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// Extract drops index.theme (and the rest) under ~/.local/share/icons/
+	wantIndexTheme := filepath.Join(env.Home, ".local/share/icons/index.theme")
+	if _, err := os.Stat(wantIndexTheme); err != nil {
+		t.Errorf("extract did not copy index.theme: %v", err)
+	}
+	wantIcon := filepath.Join(env.Home, ".local/share/icons/16x16/apps/foo.svg")
+	if _, err := os.Stat(wantIcon); err != nil {
+		t.Errorf("extract did not copy 16x16/apps/foo.svg: %v", err)
+	}
+}
+
+// TestApply_F19LookScriptExplicitOptIn: archive contains install.sh at
+// the (post-normalize) root; auto-detect REFUSES and asks for explicit
+// install = "script". With the opt-in present, the script is executed
+// with env-expanded args and Execute succeeds.
+func TestApply_F19LookScriptExplicitOptIn(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not on PATH; install=script needs it")
+	}
+	env := setupFakeApply(t)
+	archive := filepath.Join(t.TempDir(), "scripted.tar.gz")
+	// install.sh writes a marker so the test can verify execution.
+	makeTarGz(t, archive, map[string]string{
+		"the-theme/install.sh": "#!/bin/bash\nset -e\necho \"$@\" > \"$1/marker\"\n",
+	})
+
+	// First attempt: install = "" (auto). Must error because install.sh
+	// is found but the user didn't opt in.
+	env.Manifest.Looks = []manifest.Look{{
+		Name:   "Scripted",
+		Type:   "icons",
+		URL:    "https://example.invalid/s.tar.gz",
+		SHA256: "0000000000000000000000000000000000000000000000000000000000000000",
+	}}
+	plan, _ := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+	err := apply.Execute(plan, apply.ExecOptions{
+		KDE:      env.KDE,
+		Now:      func() time.Time { return env.Now },
+		Download: fixedDownloader(t, archive),
+		HomeDir:  env.Home,
+	})
+	if err == nil || !strings.Contains(err.Error(), "install.sh") {
+		t.Fatalf("expected auto-detect to refuse install.sh without opt-in; got err=%v", err)
+	}
+
+	// Second attempt: explicit opt-in. Drop the existing state file so the
+	// second Execute sees a clean slate.
+	_ = os.Remove(apply.StatePath(env.Home))
+	markerDir := t.TempDir()
+	env.Manifest.Looks[0].Install = "script"
+	env.Manifest.Looks[0].Script = "install.sh"
+	env.Manifest.Looks[0].Args = []string{markerDir}
+	plan2, _ := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+	if err := apply.Execute(plan2, apply.ExecOptions{
+		KDE:      env.KDE,
+		Now:      func() time.Time { return env.Now },
+		Download: fixedDownloader(t, archive),
+		HomeDir:  env.Home,
+	}); err != nil {
+		t.Fatalf("Execute with explicit script: %v", err)
+	}
+	// install.sh wrote the marker -> proves the script ran with args.
+	if _, err := os.Stat(filepath.Join(markerDir, "marker")); err != nil {
+		t.Errorf("install.sh did not create the marker: %v", err)
+	}
+}
+
+// TestApply_F19LookLocalSource: source = local:<name>, Riced points at
+// ~/.riced/looks/<name>/ that the user "git-cloned" into. No download,
+// no sha256, kpackage strategy because metadata.json exists.
+func TestApply_F19LookLocalSource(t *testing.T) {
+	env := setupFakeApply(t)
+	// Stage the local checkout where Riced will find it.
+	localDir := filepath.Join(env.Home, ".riced/looks/my-clone")
+	if err := os.MkdirAll(localDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "metadata.json"), []byte(`{"name":"local"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env.Manifest.Looks = []manifest.Look{{
+		Name:  "Local Source",
+		Type:  "Plasma/Theme",
+		Local: "my-clone",
+	}}
+
+	plan, _ := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+
+	// Download MUST NOT be called: a stub that errors would crash if reached.
+	failDL := func(_, _, _ string) error {
+		t.Errorf("Download called for a local: source")
+		return nil
+	}
+	if err := apply.Execute(plan, apply.ExecOptions{
+		KDE:      env.KDE,
+		Now:      func() time.Time { return env.Now },
+		Download: failDL,
+		HomeDir:  env.Home,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	// KPackageInstall called with the local dir path.
+	wantPrefix := "KPackageInstall:Plasma/Theme|" + localDir
+	found := false
+	for _, c := range env.KDE.Calls {
+		if c == wantPrefix {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("KPackageInstall not called with local dir; calls:\n  %v", env.KDE.Calls)
 	}
 }

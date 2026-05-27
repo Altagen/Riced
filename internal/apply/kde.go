@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -83,11 +82,12 @@ type KDE interface {
 	// must invoke it BEFORE any individual override that should win.
 	ApplyLookAndFeel(packageID string) error
 
-	// InstallExternalPackage installs a downloaded archive into the user
-	// data dir via `kpackagetool6 -t <type> -i <path>` (or by direct
-	// extraction for icons/cursors). pkgType matches the manifest's
-	// external_packages.type values.
-	InstallExternalPackage(pkgType, archivePath string) error
+	// KPackageInstall registers a KPackage source (.tar.gz / .tar.xz or a
+	// directory containing metadata.json) via kpackagetool6. pkgType
+	// matches manifest's looks.type for the kpackage strategies
+	// (Plasma/*, KWin/*). Falls back to -u upgrade when -i errors on
+	// already-installed.
+	KPackageInstall(pkgType, sourcePath string) error
 }
 
 // RealKDE shells out to the canonical KDE helpers. Used by `riced apply`
@@ -264,35 +264,15 @@ func (k RealKDE) ApplyLookAndFeel(packageID string) error {
 	return k.run("plasma-apply-lookandfeel", "-a", packageID)
 }
 
-// InstallExternalPackage routes Plasma/KWin kpackage archives through
-// kpackagetool6, and icon/cursor archives through a direct extract into
-// ~/.local/share/icons/.
-//
-// kpackagetool6 is idempotent on re-install via the --upgrade flag; we
-// try install first and fall back to upgrade so a re-apply doesn't error
-// out when the package already sits at the same version.
-func (k RealKDE) InstallExternalPackage(pkgType, archivePath string) error {
-	switch pkgType {
-	case "icons", "cursors":
-		// Both land under ~/.local/share/icons/<dir>/. We let tar / unzip
-		// figure out the directory name from the archive itself.
-		dst := filepath.Join(os.Getenv("HOME"), ".local", "share", "icons")
-		if x := os.Getenv("XDG_DATA_HOME"); x != "" {
-			dst = filepath.Join(x, "icons")
-		}
-		if err := os.MkdirAll(dst, 0o755); err != nil {
-			return fmt.Errorf("mkdir %s: %w", dst, err)
-		}
-		return extractArchive(archivePath, dst)
-	default:
-		if err := k.run("kpackagetool6", "-t", pkgType, "-i", archivePath); err != nil {
-			// Already installed -> retry with --upgrade. kpackagetool6
-			// returns non-zero with an "already exists" message; we
-			// don't try to parse it -- just attempt the upgrade path.
-			return k.run("kpackagetool6", "-t", pkgType, "-u", archivePath)
-		}
-		return nil
+// KPackageInstall registers a KPackage (archive or extracted dir).
+// kpackagetool6 -i is idempotent only when the package isn't already
+// installed; we fall back to -u (upgrade) so re-apply doesn't fail when
+// the package is unchanged.
+func (k RealKDE) KPackageInstall(pkgType, sourcePath string) error {
+	if err := k.run("kpackagetool6", "-t", pkgType, "-i", sourcePath); err != nil {
+		return k.run("kpackagetool6", "-t", pkgType, "-u", sourcePath)
 	}
+	return nil
 }
 
 // extractArchive expands a .tar.gz / .tar.xz / .zip archive into dst.
@@ -353,7 +333,7 @@ type FakeKDE struct {
 	CursorThemeErr    error
 	DesktopThemeErr   error
 	LookAndFeelErr    error
-	InstallExtErr     error
+	KPackageErr       error
 }
 
 func (k *FakeKDE) ApplyColorScheme(slug string) error {
@@ -410,7 +390,7 @@ func (k *FakeKDE) ApplyLookAndFeel(packageID string) error {
 	return k.LookAndFeelErr
 }
 
-func (k *FakeKDE) InstallExternalPackage(pkgType, archivePath string) error {
-	k.Calls = append(k.Calls, fmt.Sprintf("InstallExternalPackage:%s|%s", pkgType, archivePath))
-	return k.InstallExtErr
+func (k *FakeKDE) KPackageInstall(pkgType, sourcePath string) error {
+	k.Calls = append(k.Calls, fmt.Sprintf("KPackageInstall:%s|%s", pkgType, sourcePath))
+	return k.KPackageErr
 }

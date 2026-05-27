@@ -251,25 +251,65 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
-	// --- external_packages -------------------------------------------------
-	seenURL := map[string]bool{}
-	for i, p := range m.External {
-		base := fmt.Sprintf("external_packages[%d]", i)
+	// --- looks -------------------------------------------------------------
+	seenSource := map[string]bool{}
+	for i, p := range m.Looks {
+		base := fmt.Sprintf("looks[%d]", i)
 		if p.Name == "" {
 			add(base+".name", "must be set")
 		}
-		if !slices.Contains(AllowedExternalPkgTypes, p.Type) {
-			add(base+".type", fmt.Sprintf("%q not in %v", p.Type, AllowedExternalPkgTypes))
+		if !slices.Contains(AllowedLookTypes, p.Type) {
+			add(base+".type", fmt.Sprintf("%q not in %v", p.Type, AllowedLookTypes))
 		}
-		if !strings.HasPrefix(p.URL, "https://") {
-			add(base+".url", "must start with https://")
+
+		// Source: exactly one of url / local.
+		hasURL, hasLocal := p.URL != "", p.Local != ""
+		switch {
+		case hasURL && hasLocal:
+			add(base, "set exactly one of url / local (combining them is ambiguous)")
+		case !hasURL && !hasLocal:
+			add(base, "set exactly one of url / local")
+		case hasURL:
+			if !strings.HasPrefix(p.URL, "https://") {
+				add(base+".url", "must start with https://")
+			}
+			if seenSource[p.URL] {
+				add(base+".url", fmt.Sprintf("duplicate url %q", p.URL))
+			}
+			seenSource[p.URL] = true
+			if len(p.SHA256) != 64 {
+				add(base+".sha256", "must be a 64-char hex sha256 (use `sha256sum file.tar.gz`)")
+			}
+		case hasLocal:
+			// kebab-case name, no traversal, resolved under ~/.riced/looks/
+			if p.SHA256 != "" {
+				add(base+".sha256", "must be empty when local is set (no integrity check on local clones)")
+			}
+			if strings.ContainsAny(p.Local, "/\\") || strings.Contains(p.Local, "..") {
+				add(base+".local", fmt.Sprintf("%q must be a single kebab-case dir name (no path separators or '..')", p.Local))
+			}
+			if seenSource["local:"+p.Local] {
+				add(base+".local", fmt.Sprintf("duplicate local %q", p.Local))
+			}
+			seenSource["local:"+p.Local] = true
 		}
-		if seenURL[p.URL] {
-			add(base+".url", fmt.Sprintf("duplicate url %q", p.URL))
+
+		// Install strategy.
+		install := p.Install
+		if install == "" {
+			install = "auto"
 		}
-		seenURL[p.URL] = true
-		if len(p.SHA256) != 64 {
-			add(base+".sha256", "must be a 64-char hex sha256 (use `sha256sum file.tar.gz`)")
+		if !slices.Contains(AllowedLookInstallStrategies, install) {
+			add(base+".install", fmt.Sprintf("%q not in %v", install, AllowedLookInstallStrategies))
+		}
+		if install == "script" {
+			if p.Script == "" {
+				add(base+".script", "must be set when install = \"script\"")
+			} else if strings.HasPrefix(p.Script, "/") || strings.Contains(p.Script, "..") {
+				add(base+".script", fmt.Sprintf("%q must be a relative path inside the archive/dir (no leading '/' or '..')", p.Script))
+			}
+		} else if p.Script != "" {
+			add(base+".script", fmt.Sprintf("only meaningful with install = \"script\"; got install = %q", install))
 		}
 	}
 

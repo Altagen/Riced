@@ -172,40 +172,26 @@ func Execute(plan *Plan, opts ExecOptions) (err error) {
 	return nil
 }
 
-// executeExternal handles Kind="external" actions: download a remote
-// archive (sha256-verified) into the user's Riced cache, then hand it
-// to opts.KDE.InstallExternalPackage. Action shape:
+// executeExternal handles Kind="external" actions. It parses the
+// positional Args produced by plan.Build, resolves the source (URL
+// download or local clone), normalizes the root, picks a strategy
+// (auto or explicit), and dispatches to executeLook.
 //
-//	Src  = pkg name (free-form label for plan display)
-//	Args = [type, url, sha256]
+// Action shape:
+//
+//	Src     = look name (free-form label for plan display)
+//	Args[0] = type (Plasma/LookAndFeel | icons | ...)
+//	Args[1] = source ("url:<url>" or "local:<name>")
+//	Args[2] = sha256 ("" for local)
+//	Args[3] = install strategy
+//	Args[4] = script relative path ("" unless install=script)
+//	Args[5:] = script args
 func executeExternal(a Action, opts ExecOptions) error {
-	if len(a.Args) != 3 {
-		return fmt.Errorf("malformed external action %q: want 3 args (type, url, sha256), got %d", a.Src, len(a.Args))
-	}
-	pkgType, url, sha := a.Args[0], a.Args[1], a.Args[2]
-
-	dl := opts.Download
-	if dl == nil {
-		dl = DefaultDownload
-	}
-	home := opts.HomeDir
-	if home == "" {
-		h, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("resolve HOME for external cache: %w", err)
-		}
-		home = h
-	}
-	archive := filepath.Join(ExternalCacheDir(home), sha[:12]+"-"+filepath.Base(url))
-	if err := dl(url, sha, archive); err != nil {
+	spec, err := parseLookArgs(a.Args)
+	if err != nil {
 		return fmt.Errorf("external %q: %w", a.Src, err)
 	}
-	slog.Info("external downloaded", "name", a.Src, "type", pkgType, "archive", archive)
-	if err := opts.KDE.InstallExternalPackage(pkgType, archive); err != nil {
-		return fmt.Errorf("external %q install: %w", a.Src, err)
-	}
-	slog.Info("external installed", "name", a.Src)
-	return nil
+	return executeLook(spec, a.Src, opts)
 }
 
 // dispatchKDE routes a kde Action to the right KDE adapter method.
