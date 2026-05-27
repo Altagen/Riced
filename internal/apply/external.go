@@ -46,10 +46,12 @@ func DefaultDownload(url, wantSHA, dst string) error {
 		return fmt.Errorf("create %s: %w", tmp, err)
 	}
 	hash := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(out, hash), resp.Body); err != nil {
-		out.Close()
+	if _, copyErr := io.Copy(io.MultiWriter(out, hash), resp.Body); copyErr != nil {
+		if closeErr := out.Close(); closeErr != nil {
+			slog.Warn("download tmp close after copy error", "tmp", tmp, "close_err", closeErr)
+		}
 		_ = os.Remove(tmp)
-		return fmt.Errorf("download %s: %w", url, err)
+		return fmt.Errorf("download %s: %w", url, copyErr)
 	}
 	if err := out.Close(); err != nil {
 		_ = os.Remove(tmp)
@@ -343,9 +345,13 @@ func copyTreeOver(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		defer out.Close()
-		_, err = io.Copy(out, in)
-		return err
+		if _, err := io.Copy(out, in); err != nil {
+			_ = out.Close()
+			return err
+		}
+		// Close() is part of the write path on Linux (filesystem flushes
+		// happen here); surfacing its error is what CodeQL flags as missing.
+		return out.Close()
 	}
 }
 
