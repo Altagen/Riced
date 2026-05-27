@@ -23,6 +23,10 @@ type toolRequirement struct {
 var requiredTools = []toolRequirement{
 	{primary: "plasma-apply-colorscheme"},                // ApplyColorScheme
 	{primary: "plasma-apply-wallpaperimage"},             // SetWallpaperImage (single mode)
+	{primary: "plasma-apply-cursortheme"},                // ApplyCursorTheme
+	{primary: "plasma-apply-desktoptheme"},               // ApplyDesktopTheme
+	{primary: "plasma-apply-lookandfeel"},                // ApplyLookAndFeel
+	{primary: "kpackagetool6"},                           // InstallExternalPackage (kpackage types)
 	{primary: "kwriteconfig6"},                           // WriteINIKey, SetKonsoleDefaultProfile
 	{primary: "qdbus6", alternatives: []string{"qdbus"}}, // ReconfigureKWin, SetLauncherIcon
 }

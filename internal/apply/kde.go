@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -64,6 +65,29 @@ type KDE interface {
 	// ReconfigureKWin nudges KWin to re-read its config after we edit
 	// files it cares about.
 	ReconfigureKWin() error
+
+	// ApplyCursorTheme switches the system-wide cursor theme. The argument
+	// is the theme directory name (e.g. "capitaine-cursors"). The theme
+	// must already be installed under /usr/share/icons/ or
+	// ~/.local/share/icons/.
+	ApplyCursorTheme(name string) error
+
+	// ApplyDesktopTheme switches the Plasma "desktop theme" (panel widgets,
+	// popups, notifications). The argument is the theme name as listed by
+	// `kpackagetool6 -t Plasma/Theme --list`.
+	ApplyDesktopTheme(name string) error
+
+	// ApplyLookAndFeel switches Plasma's Global Theme via
+	// `plasma-apply-lookandfeel -a <package>`. This resets colorscheme,
+	// cursor, decoration, plasma theme, and icons in one shot, so callers
+	// must invoke it BEFORE any individual override that should win.
+	ApplyLookAndFeel(packageID string) error
+
+	// InstallExternalPackage installs a downloaded archive into the user
+	// data dir via `kpackagetool6 -t <type> -i <path>` (or by direct
+	// extraction for icons/cursors). pkgType matches the manifest's
+	// external_packages.type values.
+	InstallExternalPackage(pkgType, archivePath string) error
 }
 
 // RealKDE shells out to the canonical KDE helpers. Used by `riced apply`
@@ -158,12 +182,18 @@ func (k RealKDE) SetKonsoleDefaultProfile(profileFilename string) error {
 
 // WriteINIKey shells out to kwriteconfig6 (KDE Frameworks 6 / Plasma 6).
 // Plasma 5's helper is kwriteconfig5; we don't target it.
+//
+// Nested groups are encoded with "/" separators in the `group` argument
+// (e.g. "Greeter/Wallpaper/org.kde.image/General" expands to four
+// `--group` flags). This is how Plasma's kscreenlockerrc nests its
+// wallpaper config.
 func (k RealKDE) WriteINIKey(file, group, key, value string) error {
-	return k.run("kwriteconfig6",
-		"--file", file,
-		"--group", group,
-		"--key", key,
-		value)
+	args := []string{"--file", file}
+	for _, g := range strings.Split(group, "/") {
+		args = append(args, "--group", g)
+	}
+	args = append(args, "--key", key, value)
+	return k.run("kwriteconfig6", args...)
 }
 
 // launcherIconScript is the Plasma 6 JS sent to plasmashell. It walks
@@ -222,6 +252,64 @@ func (k RealKDE) ReconfigureKWin() error {
 	return k.run(QDBusBin, "org.kde.KWin", "/KWin", "reconfigure")
 }
 
+func (k RealKDE) ApplyCursorTheme(name string) error {
+	return k.run("plasma-apply-cursortheme", name)
+}
+
+func (k RealKDE) ApplyDesktopTheme(name string) error {
+	return k.run("plasma-apply-desktoptheme", name)
+}
+
+func (k RealKDE) ApplyLookAndFeel(packageID string) error {
+	return k.run("plasma-apply-lookandfeel", "-a", packageID)
+}
+
+// InstallExternalPackage routes Plasma/KWin kpackage archives through
+// kpackagetool6, and icon/cursor archives through a direct extract into
+// ~/.local/share/icons/.
+//
+// kpackagetool6 is idempotent on re-install via the --upgrade flag; we
+// try install first and fall back to upgrade so a re-apply doesn't error
+// out when the package already sits at the same version.
+func (k RealKDE) InstallExternalPackage(pkgType, archivePath string) error {
+	switch pkgType {
+	case "icons", "cursors":
+		// Both land under ~/.local/share/icons/<dir>/. We let tar / unzip
+		// figure out the directory name from the archive itself.
+		dst := filepath.Join(os.Getenv("HOME"), ".local", "share", "icons")
+		if x := os.Getenv("XDG_DATA_HOME"); x != "" {
+			dst = filepath.Join(x, "icons")
+		}
+		if err := os.MkdirAll(dst, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dst, err)
+		}
+		return extractArchive(archivePath, dst)
+	default:
+		if err := k.run("kpackagetool6", "-t", pkgType, "-i", archivePath); err != nil {
+			// Already installed -> retry with --upgrade. kpackagetool6
+			// returns non-zero with an "already exists" message; we
+			// don't try to parse it -- just attempt the upgrade path.
+			return k.run("kpackagetool6", "-t", pkgType, "-u", archivePath)
+		}
+		return nil
+	}
+}
+
+// extractArchive expands a .tar.gz / .tar.xz / .zip archive into dst.
+// Shells out to tar / unzip (already-required system tools).
+func extractArchive(archivePath, dst string) error {
+	lower := strings.ToLower(archivePath)
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
+		return exec.Command("tar", "-xzf", archivePath, "-C", dst).Run()
+	case strings.HasSuffix(lower, ".tar.xz"):
+		return exec.Command("tar", "-xJf", archivePath, "-C", dst).Run()
+	case strings.HasSuffix(lower, ".zip"):
+		return exec.Command("unzip", "-qq", "-o", archivePath, "-d", dst).Run()
+	}
+	return fmt.Errorf("unsupported archive extension: %s", archivePath)
+}
+
 func (k RealKDE) run(name string, args ...string) error {
 	return k.runWithTimeout(kdeCallTimeout, name, args...)
 }
@@ -262,6 +350,10 @@ type FakeKDE struct {
 	WriteINIErr       error
 	LauncherIconErr   error
 	ReconfigureErr    error
+	CursorThemeErr    error
+	DesktopThemeErr   error
+	LookAndFeelErr    error
+	InstallExtErr     error
 }
 
 func (k *FakeKDE) ApplyColorScheme(slug string) error {
@@ -301,4 +393,24 @@ func (k *FakeKDE) SetLauncherIcon(iconPath string) error {
 func (k *FakeKDE) ReconfigureKWin() error {
 	k.Calls = append(k.Calls, "ReconfigureKWin")
 	return k.ReconfigureErr
+}
+
+func (k *FakeKDE) ApplyCursorTheme(name string) error {
+	k.Calls = append(k.Calls, "ApplyCursorTheme:"+name)
+	return k.CursorThemeErr
+}
+
+func (k *FakeKDE) ApplyDesktopTheme(name string) error {
+	k.Calls = append(k.Calls, "ApplyDesktopTheme:"+name)
+	return k.DesktopThemeErr
+}
+
+func (k *FakeKDE) ApplyLookAndFeel(packageID string) error {
+	k.Calls = append(k.Calls, "ApplyLookAndFeel:"+packageID)
+	return k.LookAndFeelErr
+}
+
+func (k *FakeKDE) InstallExternalPackage(pkgType, archivePath string) error {
+	k.Calls = append(k.Calls, fmt.Sprintf("InstallExternalPackage:%s|%s", pkgType, archivePath))
+	return k.InstallExtErr
 }

@@ -161,6 +161,12 @@ func (t Targets) Map(slug, relSrc string) (string, bool) {
 		// are kept side-by-side under DataHome/riced/.
 		base := filepath.Base(relSrc)
 		return filepath.Join(dataHome, "riced", "icons", slug+"-"+base), true
+
+	case strings.HasPrefix(relSrc, "lock"+string(filepath.Separator)):
+		// Lock screen wallpaper. Single file ("lock.<ext>") prefixed with
+		// the slug at the destination so multiple themes coexist cleanly.
+		base := filepath.Base(relSrc)
+		return filepath.Join(dataHome, "riced", "lock", slug+"-"+base), true
 	}
 	return "", false
 }
@@ -199,6 +205,7 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 	type entry struct{ src, dst string }
 	var entries []entry
 	var launcherIconDst string   // remembered for kde set-launcher-icon
+	var lockWallpaperDst string  // remembered for kde lock-screen wallpaper action
 	var firstWallpaperDst string // remembered for plasma-apply-wallpaperimage (single mode)
 
 	walkErr := filepath.WalkDir(buildDir, func(p string, d os.DirEntry, err error) error {
@@ -217,6 +224,10 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 		// kde action telling Plasma which file to point at.
 		if filepath.Dir(rel) == "icons" && strings.HasPrefix(filepath.Base(rel), "launcher") {
 			launcherIconDst = dst
+		}
+		// Capture the lock-screen wallpaper destination for kscreenlockerrc.
+		if filepath.Dir(rel) == "lock" && strings.HasPrefix(filepath.Base(rel), "lock") {
+			lockWallpaperDst = dst
 		}
 		// Capture the first wallpaper's destination. WalkDir is lexical,
 		// and materializeWallpapers names symlinks "01-…", "02-…", so the
@@ -270,6 +281,29 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 		})
 	}
 
+	// External KDE Store packages first: subsequent actions (lookandfeel,
+	// apply-desktop-theme) may reference packages that don't exist yet on
+	// the user's machine, and those packages must be installed before any
+	// reference resolves.
+	for _, p := range m.External {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "external",
+			Src:  p.Name,
+			Args: []string{p.Type, p.URL, p.SHA256},
+		})
+	}
+
+	// Global Look & Feel BEFORE individual overrides. plasma-apply-lookandfeel
+	// resets colorscheme / cursor / decoration / plasma theme / icons in one
+	// shot, so the per-field actions that follow must be able to override
+	// whatever look-and-feel defaults to.
+	if m.LookAndFeel.Package != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "apply-lookandfeel " + m.LookAndFeel.Package,
+		})
+	}
+
 	// KDE side-effects. Wallpaper handling is conditional on mode.
 	plan.Actions = append(plan.Actions, Action{
 		Kind: "kde",
@@ -309,6 +343,48 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 		plan.Actions = append(plan.Actions, Action{
 			Kind: "kde",
 			Src:  "set-launcher-icon " + launcherIconDst,
+		})
+	}
+
+	// Lock screen wallpaper: kscreenlockerrc with deeply nested groups.
+	// WriteINIKey splits Group on "/" into multiple --group flags.
+	if lockWallpaperDst != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kwriteconfig6",
+			Args: []string{
+				"kscreenlockerrc",
+				"Greeter/Wallpaper/org.kde.image/General",
+				"Image",
+				lockWallpaperDst,
+			},
+		})
+	}
+
+	// System-wide icon theme. Single kwriteconfig6 on kdeglobals.
+	if m.Icons.Theme != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kwriteconfig6",
+			Args: []string{"kdeglobals", "Icons", "Theme", m.Icons.Theme},
+		})
+	}
+
+	// Cursor theme. plasma-apply-cursortheme switches it live and writes
+	// the appropriate config files for new sessions.
+	if m.Cursors.Theme != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "apply-cursor-theme " + m.Cursors.Theme,
+		})
+	}
+
+	// Plasma desktop "style" (panel widgets, popups). plasma-apply-desktoptheme
+	// resolves the theme name against installed Plasma/Theme packages.
+	if m.Plasma.DesktopTheme != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "apply-desktop-theme " + m.Plasma.DesktopTheme,
 		})
 	}
 
