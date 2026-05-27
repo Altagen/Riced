@@ -278,6 +278,22 @@ List installed candidates with `kpackagetool6 -t Plasma/LookAndFeel --list`. New
 
 Themes from [store.kde.org](https://store.kde.org/) (or any HTTPS host) Riced will download + install **before** the rest of the manifest runs. Each entry produces one `external` action in the apply plan that the user reviews before consent.
 
+### Where to find packages
+
+- **[store.kde.org](https://store.kde.org/)** — the official KDE store. Filter by category: *Global Themes*, *Plasma Themes*, *Icon Themes*, *Cursors*, *Window Decorations*. Each product page has a Download button — right-click → copy link to get the stable URL (`https://files.pling.com/.../...tar.xz`).
+- **[kde-look.org](https://www.pling.com/browse/cat/100/)** — alias of store.kde.org with the same content.
+- **GitHub releases** — some popular authors (Vinceliuice's WhiteSur/Layan, Dracula, Tokyo Night) publish parallel github releases. Look for proper kpackage archives (containing `metadata.json` at the root), **not** source repository tarballs — `archive/refs/tags/*.tar.gz` won't install via `kpackagetool6` because the contents sit under an extra `<repo>-<tag>/` directory.
+
+### Computing the SHA-256
+
+```bash
+curl -L -o pack.tar.xz "<the URL>"
+sha256sum pack.tar.xz
+# → 4e9d4...  pack.tar.xz
+```
+
+Paste the 64-char hex into the manifest. Riced refuses to install without it: the hash is the only thing standing between a trusted manifest and a swapped-out malicious archive.
+
 | Key | Type | Notes |
 |---|---|---|
 | `name` | string | Free-form label shown in the apply plan. |
