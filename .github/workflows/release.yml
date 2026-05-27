@@ -45,6 +45,10 @@ jobs:
   # CycloneDX SBOM, attached to the release as an extra asset alongside
   # the GoReleaser-produced tarballs. Tracks the exact module graph at
   # tag time for downstream supply-chain audits.
+  #
+  # The official action handles toolchain compat — `go install
+  # cyclonedx-gomod@latest` would otherwise fail on the same Go-1.25
+  # retroactive bump we hit with govulncheck.
   sbom:
     name: Generate SBOM
     needs: goreleaser
@@ -57,14 +61,14 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Install cyclonedx-gomod
-        run: go install github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@latest
-
       - name: Generate Go SBOM
-        run: |
-          VERSION="${{ github.ref_name }}"
-          cyclonedx-gomod mod -json -output "sbom-go-${VERSION}.json"
-          sha256sum "sbom-go-${VERSION}.json" > "sbom-go-${VERSION}.sha256"
+        uses: CycloneDX/gh-gomod-generate-sbom@v2
+        with:
+          version: latest
+          args: mod -licenses -json -output sbom-go-${{ github.ref_name }}.json
+
+      - name: Checksum SBOM
+        run: sha256sum "sbom-go-${{ github.ref_name }}.json" > "sbom-go-${{ github.ref_name }}.sha256"
 
       - name: Upload SBOM to the GitHub release
         env:

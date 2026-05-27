@@ -17,7 +17,16 @@
     "panel": { "$ref": "#/$defs/Panel" },
     "window": { "$ref": "#/$defs/Window" },
     "fonts": { "$ref": "#/$defs/Fonts" },
-    "terminal": { "$ref": "#/$defs/Terminal" }
+    "terminal": { "$ref": "#/$defs/Terminal" },
+    "icons": { "$ref": "#/$defs/Icons" },
+    "cursors": { "$ref": "#/$defs/Cursors" },
+    "plasma": { "$ref": "#/$defs/Plasma" },
+    "lookandfeel": { "$ref": "#/$defs/LookAndFeel" },
+    "external_packages": {
+      "type": "array",
+      "description": "KDE Store packages Riced downloads + installs into the user data dir BEFORE applying the rest of the manifest. URLs must be HTTPS and have a verifying sha256.",
+      "items": { "$ref": "#/$defs/ExternalPkg" }
+    }
   },
   "$defs": {
     "Meta": {
@@ -114,6 +123,10 @@
           "minItems": 1,
           "items": { "$ref": "#/$defs/RelativeAssetPath" },
           "description": "Ordered list of wallpaper file paths, relative to the theme directory. Spread to every screen by default."
+        },
+        "lock_image": {
+          "$ref": "#/$defs/RelativeAssetPath",
+          "description": "Wallpaper shown on the lock screen. Optional; when empty the lock screen keeps Plasma's existing wallpaper."
         },
         "mirror": {
           "type": "boolean",
@@ -237,6 +250,95 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Background opacity. 1.0 = fully opaque, 0.0 = fully transparent. Lands in the .colorscheme's [General] Opacity key."
+        }
+      }
+    },
+
+    "Icons": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "System-wide icon theme.",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "description": "Icon theme directory name (under /usr/share/icons/ or ~/.local/share/icons/). Theme must already be installed (system package or external_packages entry)."
+        }
+      }
+    },
+
+    "Cursors": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "System-wide cursor theme. Applied via plasma-apply-cursortheme.",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "description": "Cursor theme directory name (e.g. \"capitaine-cursors\")."
+        }
+      }
+    },
+
+    "Plasma": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plasma-specific knobs that don't fit elsewhere.",
+      "properties": {
+        "desktop_theme": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "description": "Plasma Style name (panel widgets, popups). As listed by `kpackagetool6 -t Plasma/Theme --list`. Applied via plasma-apply-desktoptheme."
+        }
+      }
+    },
+
+    "LookAndFeel": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plasma Global Theme — a meta-package that resets colorscheme, cursor, decoration, plasma theme and icons in one shot. Riced applies it BEFORE the individual overrides so theme-specific fields win.",
+      "properties": {
+        "package": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "description": "LookAndFeel package id, e.g. \"org.kde.breezedark.desktop\". As listed by `kpackagetool6 -t Plasma/LookAndFeel --list`."
+        }
+      }
+    },
+
+    "ExternalPkg": {
+      "type": "object",
+      "required": ["name", "type", "url", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Free-form label shown in the apply plan."
+        },
+        "type": {
+          "enum": [
+            "Plasma/LookAndFeel",
+            "Plasma/Theme",
+            "Plasma/Wallpaper",
+            "KWin/Decoration",
+            "KWin/Aurorae",
+            "KWin/Effect",
+            "KWin/Script",
+            "icons",
+            "cursors"
+          ],
+          "description": "kpackagetool6 structure name. icons/cursors are extracted directly into ~/.local/share/icons/."
+        },
+        "url": {
+          "type": "string",
+          "pattern": "^https://",
+          "description": "HTTPS URL to a .tar.gz / .tar.xz / .zip archive."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-fA-F]{64}$",
+          "description": "Hex-encoded SHA-256 of the archive. Compute with `sha256sum file.tar.gz`. Riced refuses to install without integrity check."
         }
       }
     }

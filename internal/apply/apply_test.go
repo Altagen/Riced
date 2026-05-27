@@ -2,6 +2,7 @@ package apply_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -729,5 +730,195 @@ func TestPlan_Format_ListsActions(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("plan format missing %q\n---\n%s", want, out)
 		}
+	}
+}
+
+// TestApply_F16Customization verifies F16: each new manifest field
+// (icons.theme, cursors.theme, plasma.desktop_theme, wallpapers.lock_image)
+// produces exactly one kde Action with the expected verb.
+func TestApply_F16Customization(t *testing.T) {
+	env := setupFakeApply(t)
+	env.Manifest.Icons = manifest.Icons{Theme: "breeze-dark"}
+	env.Manifest.Cursors = manifest.Cursors{Theme: "capitaine-cursors"}
+	env.Manifest.Plasma = manifest.Plasma{DesktopTheme: "default"}
+
+	// Materialize a fake lock wallpaper into the build tree so the planner picks it up.
+	lockDir := filepath.Join(env.BuildDir, "lock")
+	if err := os.MkdirAll(lockDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lockSrc := filepath.Join(t.TempDir(), "lock.png")
+	if err := os.WriteFile(lockSrc, []byte("png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(lockSrc, filepath.Join(lockDir, "lock.png")); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, _ := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+
+	wantLock := filepath.Join(env.Home, ".local/share/riced/lock/s4-test-lock.png")
+	checks := map[string]bool{
+		"lock-wallpaper kwriteconfig6 to kscreenlockerrc": false,
+		"icons kwriteconfig6 to kdeglobals":               false,
+		"apply-cursor-theme":                              false,
+		"apply-desktop-theme":                             false,
+	}
+	for _, a := range plan.Actions {
+		if a.Kind == "kde" && a.Src == "kwriteconfig6" && len(a.Args) == 4 {
+			if a.Args[0] == "kscreenlockerrc" && a.Args[3] == wantLock {
+				checks["lock-wallpaper kwriteconfig6 to kscreenlockerrc"] = true
+			}
+			if a.Args[0] == "kdeglobals" && a.Args[1] == "Icons" && a.Args[3] == "breeze-dark" {
+				checks["icons kwriteconfig6 to kdeglobals"] = true
+			}
+		}
+		if a.Src == "apply-cursor-theme capitaine-cursors" {
+			checks["apply-cursor-theme"] = true
+		}
+		if a.Src == "apply-desktop-theme default" {
+			checks["apply-desktop-theme"] = true
+		}
+	}
+	for k, v := range checks {
+		if !v {
+			t.Errorf("plan missing %q\n%s", k, plan.Format())
+		}
+	}
+
+	if err := apply.Execute(plan, apply.ExecOptions{
+		KDE: env.KDE,
+		Now: func() time.Time { return env.Now },
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	wantCalls := []string{
+		"ApplyCursorTheme:capitaine-cursors",
+		"ApplyDesktopTheme:default",
+	}
+	for _, w := range wantCalls {
+		found := false
+		for _, c := range env.KDE.Calls {
+			if c == w {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("FakeKDE.Calls missing %q\ngot: %v", w, env.KDE.Calls)
+		}
+	}
+}
+
+// TestApply_F17LookAndFeelComesFirst verifies F17: when lookandfeel is
+// set, the apply-lookandfeel action appears BEFORE plasma-apply-colorscheme,
+// so individual overrides win over the global theme defaults.
+func TestApply_F17LookAndFeelComesFirst(t *testing.T) {
+	env := setupFakeApply(t)
+	env.Manifest.LookAndFeel = manifest.LookAndFeel{Package: "org.kde.breezedark.desktop"}
+
+	plan, _ := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+
+	var lafIdx, colorIdx int = -1, -1
+	for i, a := range plan.Actions {
+		if a.Src == "apply-lookandfeel org.kde.breezedark.desktop" {
+			lafIdx = i
+		}
+		if strings.HasPrefix(a.Src, "plasma-apply-colorscheme ") {
+			colorIdx = i
+		}
+	}
+	if lafIdx == -1 {
+		t.Fatalf("no apply-lookandfeel action in plan\n%s", plan.Format())
+	}
+	if colorIdx == -1 {
+		t.Fatalf("no plasma-apply-colorscheme action in plan")
+	}
+	if lafIdx >= colorIdx {
+		t.Errorf("apply-lookandfeel must come before plasma-apply-colorscheme; got %d vs %d", lafIdx, colorIdx)
+	}
+}
+
+// TestApply_F18ExternalPackages verifies F18: external_packages emit
+// Kind="external" actions FIRST in the plan and route through the
+// Download + InstallExternalPackage path at Execute time.
+func TestApply_F18ExternalPackages(t *testing.T) {
+	env := setupFakeApply(t)
+	env.Manifest.External = []manifest.ExternalPkg{
+		{
+			Name:   "Test LookAndFeel",
+			Type:   "Plasma/LookAndFeel",
+			URL:    "https://example.invalid/laf.tar.gz",
+			SHA256: "0000000000000000000000000000000000000000000000000000000000000000",
+		},
+	}
+
+	plan, _ := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+
+	// First "external" action must be at the very top of the actions list
+	// among any side-effect, before mkdir/copy/symlink even? Actually plan
+	// keeps file ops first, KDE-domain second. external lives in the KDE
+	// domain. Verify it comes before any KDE action.
+	var extIdx, firstKDEIdx int = -1, -1
+	for i, a := range plan.Actions {
+		if a.Kind == "external" && extIdx == -1 {
+			extIdx = i
+		}
+		if a.Kind == "kde" && firstKDEIdx == -1 {
+			firstKDEIdx = i
+		}
+	}
+	if extIdx == -1 {
+		t.Fatalf("no external action in plan\n%s", plan.Format())
+	}
+	if firstKDEIdx != -1 && extIdx >= firstKDEIdx {
+		t.Errorf("external action must precede every kde action; got ext=%d first-kde=%d", extIdx, firstKDEIdx)
+	}
+
+	// Execute with an injected download stub that records the call and
+	// pretends success. Real DefaultDownload would try to hit example.invalid.
+	var downloadedURL, downloadedSHA, downloadedDst string
+	fakeDownload := func(url, sha, dst string) error {
+		downloadedURL, downloadedSHA, downloadedDst = url, sha, dst
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(dst, []byte("fake-archive"), 0o644)
+	}
+	if err := apply.Execute(plan, apply.ExecOptions{
+		KDE:      env.KDE,
+		Now:      func() time.Time { return env.Now },
+		Download: fakeDownload,
+		HomeDir:  env.Home,
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if downloadedURL != "https://example.invalid/laf.tar.gz" {
+		t.Errorf("download URL = %q, want example.invalid/laf.tar.gz", downloadedURL)
+	}
+	if downloadedSHA != "0000000000000000000000000000000000000000000000000000000000000000" {
+		t.Errorf("download SHA passed wrong")
+	}
+	if !strings.HasPrefix(downloadedDst, filepath.Join(env.Home, ".riced/cache/external")) {
+		t.Errorf("download dst %q is not under ~/.riced/cache/external", downloadedDst)
+	}
+	// FakeKDE must have received InstallExternalPackage.
+	wantCall := fmt.Sprintf("InstallExternalPackage:Plasma/LookAndFeel|%s", downloadedDst)
+	found := false
+	for _, c := range env.KDE.Calls {
+		if c == wantCall {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("FakeKDE.Calls missing %q\ngot: %v", wantCall, env.KDE.Calls)
 	}
 }

@@ -15,14 +15,19 @@ const CurrentSchemaVersion = 1
 // launcher icon) are interpreted relative to the directory containing
 // theme.toml. That directory is stored in Dir after a successful Load.
 type Manifest struct {
-	SchemaVersion int        `toml:"schema_version"`
-	Meta          Meta       `toml:"meta"`
-	Palette       Palette    `toml:"palette"`
-	Wallpapers    Wallpapers `toml:"wallpapers"`
-	Panel         Panel      `toml:"panel"`
-	Window        Window     `toml:"window"`
-	Fonts         Fonts      `toml:"fonts"`
-	Terminal      Terminal   `toml:"terminal"`
+	SchemaVersion int           `toml:"schema_version"`
+	Meta          Meta          `toml:"meta"`
+	Palette       Palette       `toml:"palette"`
+	Wallpapers    Wallpapers    `toml:"wallpapers"`
+	Panel         Panel         `toml:"panel"`
+	Window        Window        `toml:"window"`
+	Fonts         Fonts         `toml:"fonts"`
+	Terminal      Terminal      `toml:"terminal"`
+	Icons         Icons         `toml:"icons"`
+	Cursors       Cursors       `toml:"cursors"`
+	Plasma        Plasma        `toml:"plasma"`
+	LookAndFeel   LookAndFeel   `toml:"lookandfeel"`
+	External      []ExternalPkg `toml:"external_packages"`
 
 	// Dir is the absolute path of the directory containing theme.toml.
 	// Set by Load; not serialized.
@@ -65,6 +70,10 @@ type Wallpapers struct {
 	Mode     string   `toml:"mode"`     // "single" | "slideshow"
 	Interval int      `toml:"interval"` // seconds; only used when Mode == "slideshow"
 	Paths    []string `toml:"paths"`    // relative to the theme directory
+	// LockImage is the wallpaper shown on the lock screen. Relative to
+	// the theme directory; absolute path also accepted. Optional: when
+	// empty, the lock screen keeps whatever Plasma had configured.
+	LockImage string `toml:"lock_image"`
 	// Mirror, when true, sends the top-level Paths to every screen
 	// individually. Default (false) keeps the legacy behavior of one
 	// shared slideshow directory cycled independently per screen.
@@ -173,6 +182,70 @@ type Fonts struct {
 
 type Terminal struct {
 	Opacity float64 `toml:"opacity"` // 0.0 - 1.0
+}
+
+// Icons selects the system-wide icon theme. The value is the theme's
+// directory name as installed under /usr/share/icons/ or
+// ~/.local/share/icons/. Applied via `kwriteconfig6 kdeglobals Icons Theme`.
+type Icons struct {
+	Theme string `toml:"theme"`
+}
+
+// Cursors selects the system-wide cursor theme. The value is the theme's
+// directory name (e.g. "capitaine-cursors"). Applied via
+// `plasma-apply-cursortheme <name>`.
+type Cursors struct {
+	Theme string `toml:"theme"`
+}
+
+// Plasma carries Plasma-specific knobs that don't fit anywhere else.
+// DesktopTheme is the "Plasma Style" name (panel widgets, popups,
+// notifications). Applied via `plasma-apply-desktoptheme <name>`.
+type Plasma struct {
+	DesktopTheme string `toml:"desktop_theme"`
+}
+
+// LookAndFeel switches Plasma's "Global Theme" -- a meta-package that
+// resets colorscheme, cursor, decoration, plasma theme and icons in one
+// shot. Riced applies it BEFORE the individual overrides so the
+// theme-specific fields can win over the look-and-feel defaults.
+// Package is the LookAndFeel package id (e.g. "org.kde.breezedark.desktop"),
+// as listed by `kpackagetool6 -t Plasma/LookAndFeel --list`.
+type LookAndFeel struct {
+	Package string `toml:"package"`
+}
+
+// ExternalPkg describes a KDE Store / kde-look.org package Riced should
+// download + install into the user's data dir before applying the rest
+// of the manifest. Lets a manifest reference themes that aren't part of
+// the system's package manager (e.g. a community Plasma global theme).
+//
+// Type matches kpackagetool6's structure names ("Plasma/LookAndFeel",
+// "Plasma/Theme", "KWin/Decoration", "KWin/Aurorae") plus "icons" and
+// "cursors" which extract to ~/.local/share/icons/.
+//
+// URL must be HTTPS and resolve to a .tar.gz / .tar.xz / .zip archive.
+// SHA256 is mandatory: Riced refuses to install without an integrity check.
+type ExternalPkg struct {
+	Name   string `toml:"name"`   // human label for the plan display
+	Type   string `toml:"type"`   // see Allowed* below
+	URL    string `toml:"url"`    // HTTPS .tar.gz/.tar.xz/.zip
+	SHA256 string `toml:"sha256"` // hex-encoded
+}
+
+// AllowedExternalPkgTypes enumerates the kpackagetool6 structure names
+// (plus the two special-cases handled by direct extract). Kept here so
+// validators and renderers share one source.
+var AllowedExternalPkgTypes = []string{
+	"Plasma/LookAndFeel",
+	"Plasma/Theme",
+	"Plasma/Wallpaper",
+	"KWin/Decoration",
+	"KWin/Aurorae",
+	"KWin/Effect",
+	"KWin/Script",
+	"icons",
+	"cursors",
 }
 
 // Allowed enum values, kept here so validators and docs share one source.

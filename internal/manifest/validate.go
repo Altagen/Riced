@@ -227,6 +227,52 @@ func (m *Manifest) Validate() error {
 		add("terminal.opacity", fmt.Sprintf("%.3f must be in [0, 1]", m.Terminal.Opacity))
 	}
 
+	// --- lock image (under wallpapers) -------------------------------------
+	if m.Wallpapers.LockImage != "" {
+		if err := checkPathSafety(m.Wallpapers.LockImage); err != nil {
+			add("wallpapers.lock_image", err.Error())
+		} else if err := checkRelFileExists(m.Dir, m.Wallpapers.LockImage); err != nil {
+			add("wallpapers.lock_image", err.Error())
+		}
+	}
+
+	// --- icons / cursors / plasma / lookandfeel ----------------------------
+	// Theme names are arbitrary directory names on the user's system; we
+	// only sanity-check non-empty (already implicit) and forbid path
+	// separators which would suggest the user typed a path by mistake.
+	for field, val := range map[string]string{
+		"icons.theme":          m.Icons.Theme,
+		"cursors.theme":        m.Cursors.Theme,
+		"plasma.desktop_theme": m.Plasma.DesktopTheme,
+		"lookandfeel.package":  m.LookAndFeel.Package,
+	} {
+		if val != "" && strings.ContainsAny(val, "/\\") {
+			add(field, fmt.Sprintf("%q looks like a path -- expected a theme name (directory under ~/.local/share/icons/ etc.)", val))
+		}
+	}
+
+	// --- external_packages -------------------------------------------------
+	seenURL := map[string]bool{}
+	for i, p := range m.External {
+		base := fmt.Sprintf("external_packages[%d]", i)
+		if p.Name == "" {
+			add(base+".name", "must be set")
+		}
+		if !slices.Contains(AllowedExternalPkgTypes, p.Type) {
+			add(base+".type", fmt.Sprintf("%q not in %v", p.Type, AllowedExternalPkgTypes))
+		}
+		if !strings.HasPrefix(p.URL, "https://") {
+			add(base+".url", "must start with https://")
+		}
+		if seenURL[p.URL] {
+			add(base+".url", fmt.Sprintf("duplicate url %q", p.URL))
+		}
+		seenURL[p.URL] = true
+		if len(p.SHA256) != 64 {
+			add(base+".sha256", "must be a 64-char hex sha256 (use `sha256sum file.tar.gz`)")
+		}
+	}
+
 	// --- unknown keys (forward-compatibility warning) ----------------------
 	for _, k := range m.unknownKeys {
 		add(k, "unknown key (newer schema?) -- ignored")

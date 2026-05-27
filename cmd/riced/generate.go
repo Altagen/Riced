@@ -97,6 +97,16 @@ func renderAll(m *manifest.Manifest, outDir string) ([]string, error) {
 		written = append(written, iconPath)
 	}
 
+	// Lock screen wallpaper: same single-symlink pattern as the launcher icon.
+	lockPath, err := materializeLockWallpaper(m, outDir)
+	if err != nil {
+		return written, fmt.Errorf("lock wallpaper: %w", err)
+	}
+	if lockPath != "" {
+		slog.Debug("materialized lock wallpaper", "path", lockPath)
+		written = append(written, lockPath)
+	}
+
 	wallpaperRender := func(mm *manifest.Manifest) ([]byte, error) {
 		return render.Wallpapers(mm, render.WallpaperOpts{WallpapersDir: wallpapersDir})
 	}

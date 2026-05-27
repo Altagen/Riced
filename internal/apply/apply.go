@@ -22,6 +22,15 @@ type ExecOptions struct {
 	// Now is the wallclock used to stamp the backup directory and the
 	// state file. Default time.Now.UTC().
 	Now func() time.Time
+
+	// Download fetches external_packages archives + verifies their
+	// SHA-256. Default DefaultDownload (HTTPS + io.Copy). Tests set a
+	// stub to avoid network calls.
+	Download ExternalDownloader
+
+	// HomeDir is the user's home dir used to compute the external
+	// download cache path. Default os.UserHomeDir().
+	HomeDir string
 }
 
 // Execute walks the Plan, runs every Action, backs up overwritten files,
@@ -146,12 +155,56 @@ func Execute(plan *Plan, opts ExecOptions) (err error) {
 				return err
 			}
 			slog.Info("KDE", "call", a.Src, "args", a.Args)
+		case "external":
+			if opts.KDE == nil {
+				slog.Warn("no KDE adapter provided, skipping external package", "name", a.Src)
+				continue
+			}
+			if err := executeExternal(a, opts); err != nil {
+				return err
+			}
 		default:
 			return fmt.Errorf("unknown action kind %q", a.Kind)
 		}
 	}
 
 	// On success the defer above persists state. Nothing more to do.
+	return nil
+}
+
+// executeExternal handles Kind="external" actions: download a remote
+// archive (sha256-verified) into the user's Riced cache, then hand it
+// to opts.KDE.InstallExternalPackage. Action shape:
+//
+//	Src  = pkg name (free-form label for plan display)
+//	Args = [type, url, sha256]
+func executeExternal(a Action, opts ExecOptions) error {
+	if len(a.Args) != 3 {
+		return fmt.Errorf("malformed external action %q: want 3 args (type, url, sha256), got %d", a.Src, len(a.Args))
+	}
+	pkgType, url, sha := a.Args[0], a.Args[1], a.Args[2]
+
+	dl := opts.Download
+	if dl == nil {
+		dl = DefaultDownload
+	}
+	home := opts.HomeDir
+	if home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("resolve HOME for external cache: %w", err)
+		}
+		home = h
+	}
+	archive := filepath.Join(ExternalCacheDir(home), sha[:12]+"-"+filepath.Base(url))
+	if err := dl(url, sha, archive); err != nil {
+		return fmt.Errorf("external %q: %w", a.Src, err)
+	}
+	slog.Info("external downloaded", "name", a.Src, "type", pkgType, "archive", archive)
+	if err := opts.KDE.InstallExternalPackage(pkgType, archive); err != nil {
+		return fmt.Errorf("external %q install: %w", a.Src, err)
+	}
+	slog.Info("external installed", "name", a.Src)
 	return nil
 }
 
@@ -177,6 +230,12 @@ func dispatchKDE(kde KDE, a Action) error {
 		return kde.WriteINIKey(a.Args[0], a.Args[1], a.Args[2], a.Args[3])
 	case strings.HasPrefix(a.Src, "set-launcher-icon "):
 		return kde.SetLauncherIcon(a.Src[len("set-launcher-icon "):])
+	case strings.HasPrefix(a.Src, "apply-cursor-theme "):
+		return kde.ApplyCursorTheme(a.Src[len("apply-cursor-theme "):])
+	case strings.HasPrefix(a.Src, "apply-desktop-theme "):
+		return kde.ApplyDesktopTheme(a.Src[len("apply-desktop-theme "):])
+	case strings.HasPrefix(a.Src, "apply-lookandfeel "):
+		return kde.ApplyLookAndFeel(a.Src[len("apply-lookandfeel "):])
 	case strings.HasPrefix(a.Src, "set-wallpaper-slideshow "):
 		// Src format: "set-wallpaper-slideshow <interval>". Each Args
 		// entry is one rule encoded as "<kind>:<value>:<path>", in

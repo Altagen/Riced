@@ -101,6 +101,7 @@ Riced supports three layouts: a single image, a flat slideshow mirrored across e
 | `mode` | string | `"single"` | `"single"` or `"slideshow"`. |
 | `interval` | int (seconds) | `600` for slideshow | Required when `mode = "slideshow"`. |
 | `paths` | array of string | — | Flat list, mirrored across every screen. Mutually exclusive with `[[wallpapers.screens]]`. |
+| `lock_image` | string | — | Wallpaper shown on the lock screen. Optional; when empty the lock screen keeps Plasma's existing wallpaper. Written to `kscreenlockerrc` Greeter/Wallpaper/org.kde.image/General/Image. |
 | `mirror` | bool | `false` | Explicit alias for the flat-mirror semantics. Mutually exclusive with `[[wallpapers.screens]]`. |
 | `screens` | array of tables | — | Per-screen rule cascade. See below. |
 
@@ -234,6 +235,79 @@ mono = "JetBrains Mono"
 [terminal]
 opacity = 0.80
 ```
+
+---
+
+## `[icons]`, `[cursors]`, `[plasma]`
+
+| Section | Key | Notes |
+|---|---|---|
+| `[icons]`   | `theme` | Icon theme directory name (under `/usr/share/icons/` or `~/.local/share/icons/`). Applied via `kwriteconfig6 kdeglobals Icons Theme`. |
+| `[cursors]` | `theme` | Cursor theme directory name (e.g. `capitaine-cursors`). Applied via `plasma-apply-cursortheme`. |
+| `[plasma]`  | `desktop_theme` | Plasma Style name (panel widgets, popups). Applied via `plasma-apply-desktoptheme`. |
+
+Each value is the theme's **installed directory name**, not a path. Theme must already exist on the system (or be brought in by an `[[external_packages]]` entry — see below).
+
+```toml
+[icons]
+theme = "breeze-dark"
+
+[cursors]
+theme = "capitaine-cursors"
+
+[plasma]
+desktop_theme = "default"
+```
+
+---
+
+## `[lookandfeel]` — Plasma Global Theme
+
+A "Global Theme" is a single KPackage that bundles a colorscheme, cursor theme, decoration, plasma theme and icons. Applying one resets all of those at once. Riced applies `lookandfeel` **before** the individual overrides (`[palette]`, `[icons]`, `[cursors]`, etc.) so the theme-specific fields can win.
+
+```toml
+[lookandfeel]
+package = "org.kde.breezedark.desktop"
+```
+
+List installed candidates with `kpackagetool6 -t Plasma/LookAndFeel --list`. New ones can be brought in via `[[external_packages]]`.
+
+---
+
+## `[[external_packages]]` — KDE Store downloads
+
+Themes from [store.kde.org](https://store.kde.org/) (or any HTTPS host) Riced will download + install **before** the rest of the manifest runs. Each entry produces one `external` action in the apply plan that the user reviews before consent.
+
+| Key | Type | Notes |
+|---|---|---|
+| `name` | string | Free-form label shown in the apply plan. |
+| `type` | enum | `Plasma/LookAndFeel`, `Plasma/Theme`, `Plasma/Wallpaper`, `KWin/Decoration`, `KWin/Aurorae`, `KWin/Effect`, `KWin/Script`, `icons`, `cursors`. |
+| `url` | string | HTTPS URL to a `.tar.gz` / `.tar.xz` / `.zip` archive. |
+| `sha256` | hex string | 64-char hex SHA-256 of the archive. **Mandatory** — Riced refuses to install without it. Compute with `sha256sum file.tar.gz`. |
+
+```toml
+[[external_packages]]
+name   = "Layan Global Theme"
+type   = "Plasma/LookAndFeel"
+url    = "https://files.kde-look.org/12345/layan.tar.xz"
+sha256 = "abc123..."
+
+[[external_packages]]
+name   = "Tela Icons"
+type   = "icons"
+url    = "https://github.com/vinceliuice/Tela-icon-theme/archive/refs/tags/2024-04-20.tar.gz"
+sha256 = "def456..."
+
+# Now the rest of the manifest can reference them:
+[lookandfeel]
+package = "com.example.layan"     # provided by the archive above
+[icons]
+theme = "Tela-dark"               # extracted from the icons archive
+```
+
+Archives are cached at `~/.riced/cache/external/<sha-prefix>-<basename>`. Re-applying a theme with the same SHA skips the download. **Riced does not browse `store.kde.org`** — you (the theme author) supply the URL + hash manually for now.
+
+For packagetool-recognized types (everything except `icons`/`cursors`), Riced invokes `kpackagetool6 -t <type> -i <archive>` (falling back to `-u` upgrade on a re-install). For `icons`/`cursors`, the archive is extracted directly into `~/.local/share/icons/`.
 
 ---
 

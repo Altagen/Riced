@@ -85,6 +85,38 @@ func materializeWallpapers(m *manifest.Manifest, themeOut string) (string, []str
 	return absDir, written, nil
 }
 
+// materializeLockWallpaper places the manifest's wallpapers.lock_image as
+// a symlink under build/<slug>/lock/lock.<ext>. Returns the absolute path,
+// or "" when the manifest does not declare a lock wallpaper. Same
+// idempotency trick as the other materializers: stale symlinks are wiped
+// first.
+func materializeLockWallpaper(m *manifest.Manifest, themeOut string) (string, error) {
+	if m.Wallpapers.LockImage == "" {
+		return "", nil
+	}
+	dir := filepath.Join(themeOut, "lock")
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("resolve lock dir: %w", err)
+	}
+	if err := wipeSymlinks(absDir); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", absDir, err)
+	}
+	src, err := resolveThemeAsset(m.Dir, m.Wallpapers.LockImage)
+	if err != nil {
+		return "", fmt.Errorf("lock wallpaper: %w", err)
+	}
+	ext := filepath.Ext(src)
+	dst := filepath.Join(absDir, "lock"+ext)
+	if err := os.Symlink(src, dst); err != nil {
+		return "", fmt.Errorf("symlink %s -> %s: %w", dst, src, err)
+	}
+	return dst, nil
+}
+
 // materializeLauncherIcon places the manifest's panel.launcher_icon as a
 // symlink under build/<slug>/icons/launcher<ext>. The same idempotency
 // trick as wallpapers: stale symlinks are wiped first. Returns the
