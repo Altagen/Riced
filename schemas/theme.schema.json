@@ -22,10 +22,10 @@
     "cursors": { "$ref": "#/$defs/Cursors" },
     "plasma": { "$ref": "#/$defs/Plasma" },
     "lookandfeel": { "$ref": "#/$defs/LookAndFeel" },
-    "external_packages": {
+    "looks": {
       "type": "array",
-      "description": "KDE Store packages Riced downloads + installs into the user data dir BEFORE applying the rest of the manifest. URLs must be HTTPS and have a verifying sha256.",
-      "items": { "$ref": "#/$defs/ExternalPkg" }
+      "description": "KDE theme assets (icons, cursors, Plasma global themes, KWin decorations, ...) Riced installs into the user data dir BEFORE the rest of the manifest applies. Source is either an HTTPS archive + sha256, or a local clone under ~/.riced/looks/<name>/ that the user manages via git.",
+      "items": { "$ref": "#/$defs/Look" }
     }
   },
   "$defs": {
@@ -262,7 +262,7 @@
         "theme": {
           "type": "string",
           "pattern": "^[A-Za-z0-9._-]+$",
-          "description": "Icon theme directory name (under /usr/share/icons/ or ~/.local/share/icons/). Theme must already be installed (system package or external_packages entry)."
+          "description": "Icon theme directory name (under /usr/share/icons/ or ~/.local/share/icons/). Theme must already be installed (system package or [[looks]] entry)."
         }
       }
     },
@@ -306,10 +306,11 @@
       }
     },
 
-    "ExternalPkg": {
+    "Look": {
       "type": "object",
-      "required": ["name", "type", "url", "sha256"],
+      "required": ["name", "type"],
       "additionalProperties": false,
+      "description": "Source: exactly one of url / local. URL requires sha256. Local references ~/.riced/looks/<name>/ (user-managed clone, no integrity check).",
       "properties": {
         "name": {
           "type": "string",
@@ -328,19 +329,43 @@
             "icons",
             "cursors"
           ],
-          "description": "kpackagetool6 structure name. icons/cursors are extracted directly into ~/.local/share/icons/."
+          "description": "kpackagetool6 structure name. icons/cursors extract directly to ~/.local/share/icons/."
         },
         "url": {
           "type": "string",
           "pattern": "^https://",
-          "description": "HTTPS URL to a .tar.gz / .tar.xz / .zip archive."
+          "description": "HTTPS URL to a .tar.gz / .tar.xz / .zip archive. Mutually exclusive with local."
         },
         "sha256": {
           "type": "string",
           "pattern": "^[0-9a-fA-F]{64}$",
-          "description": "Hex-encoded SHA-256 of the archive. Compute with `sha256sum file.tar.gz`. Riced refuses to install without integrity check."
+          "description": "Hex-encoded SHA-256 of the archive. Required when url is set; forbidden when local is set."
+        },
+        "local": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]*$",
+          "description": "Subdir name under ~/.riced/looks/. The user populates that directory themselves (e.g. via `git clone`). Mutually exclusive with url."
+        },
+        "install": {
+          "enum": ["auto", "kpackage", "extract", "script"],
+          "default": "auto",
+          "description": "Install strategy. auto inspects the source: metadata.json -> kpackage, index.theme -> extract, install.sh -> refuses (set install=script to opt in)."
+        },
+        "script": {
+          "type": "string",
+          "pattern": "^[^/].*",
+          "description": "Path of the installer script inside the (normalized) source. Required + only meaningful when install = script. Must be relative (no leading /), no '..'."
+        },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Arguments passed to the install script. $HOME / $XDG_DATA_HOME / $XDG_CONFIG_HOME are expanded at apply time (no shell substitution)."
         }
-      }
+      },
+      "oneOf": [
+        { "required": ["url", "sha256"], "not": { "required": ["local"] } },
+        { "required": ["local"], "not": { "required": ["url"] } }
+      ]
     }
   }
 }

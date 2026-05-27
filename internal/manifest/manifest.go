@@ -15,19 +15,19 @@ const CurrentSchemaVersion = 1
 // launcher icon) are interpreted relative to the directory containing
 // theme.toml. That directory is stored in Dir after a successful Load.
 type Manifest struct {
-	SchemaVersion int           `toml:"schema_version"`
-	Meta          Meta          `toml:"meta"`
-	Palette       Palette       `toml:"palette"`
-	Wallpapers    Wallpapers    `toml:"wallpapers"`
-	Panel         Panel         `toml:"panel"`
-	Window        Window        `toml:"window"`
-	Fonts         Fonts         `toml:"fonts"`
-	Terminal      Terminal      `toml:"terminal"`
-	Icons         Icons         `toml:"icons"`
-	Cursors       Cursors       `toml:"cursors"`
-	Plasma        Plasma        `toml:"plasma"`
-	LookAndFeel   LookAndFeel   `toml:"lookandfeel"`
-	External      []ExternalPkg `toml:"external_packages"`
+	SchemaVersion int         `toml:"schema_version"`
+	Meta          Meta        `toml:"meta"`
+	Palette       Palette     `toml:"palette"`
+	Wallpapers    Wallpapers  `toml:"wallpapers"`
+	Panel         Panel       `toml:"panel"`
+	Window        Window      `toml:"window"`
+	Fonts         Fonts       `toml:"fonts"`
+	Terminal      Terminal    `toml:"terminal"`
+	Icons         Icons       `toml:"icons"`
+	Cursors       Cursors     `toml:"cursors"`
+	Plasma        Plasma      `toml:"plasma"`
+	LookAndFeel   LookAndFeel `toml:"lookandfeel"`
+	Looks         []Look      `toml:"looks"`
 
 	// Dir is the absolute path of the directory containing theme.toml.
 	// Set by Load; not serialized.
@@ -215,28 +215,54 @@ type LookAndFeel struct {
 	Package string `toml:"package"`
 }
 
-// ExternalPkg describes a KDE Store / kde-look.org package Riced should
-// download + install into the user's data dir before applying the rest
-// of the manifest. Lets a manifest reference themes that aren't part of
-// the system's package manager (e.g. a community Plasma global theme).
+// Look describes a KDE theme asset Riced should install into the user's
+// data dir before applying the rest of the manifest. Covers community
+// packages from store.kde.org, github releases, or user-managed local
+// clones under ~/.riced/looks/.
+//
+// Source: exactly one of URL or Local.
+//
+//	URL points to an HTTPS-hosted .tar.gz / .tar.xz / .zip archive.
+//	SHA256 of that archive is mandatory (integrity check before install).
+//
+//	Local is a kebab-case name under ~/.riced/looks/<name>/ that the user
+//	has already populated (typically `git clone`). No sha256 — trust is the
+//	user's local checkout, same model as `riced repo add`.
 //
 // Type matches kpackagetool6's structure names ("Plasma/LookAndFeel",
 // "Plasma/Theme", "KWin/Decoration", "KWin/Aurorae") plus "icons" and
-// "cursors" which extract to ~/.local/share/icons/.
+// "cursors" which land directly under ~/.local/share/icons/.
 //
-// URL must be HTTPS and resolve to a .tar.gz / .tar.xz / .zip archive.
-// SHA256 is mandatory: Riced refuses to install without an integrity check.
-type ExternalPkg struct {
-	Name   string `toml:"name"`   // human label for the plan display
-	Type   string `toml:"type"`   // see Allowed* below
-	URL    string `toml:"url"`    // HTTPS .tar.gz/.tar.xz/.zip
-	SHA256 string `toml:"sha256"` // hex-encoded
+// Install picks the install strategy. "auto" inspects the source and
+// routes to one of the explicit strategies. Riced always *normalizes*
+// the source first: if the archive (or local dir) has a single
+// top-level subdirectory (github-source layout), Riced descends into
+// it so paths in Script are relative to the actual theme root.
+//
+//	"kpackage" — kpackagetool6 -t <type> -i <normalized-source>
+//	"extract"  — copy contents into ~/.local/share/icons/<basename>/
+//	"script"   — exec /bin/bash <normalized-source>/<Script> <Args...>
+//
+// When Install = "script", Script is a relative path under the
+// (normalized) source (no .. or absolute) and Args supports
+// $HOME / $XDG_DATA_HOME / $XDG_CONFIG_HOME expansion (Go-side, no
+// shell). The exact command lands in the apply plan for explicit user
+// consent. "auto" will NEVER pick "script" silently — it asks the user
+// to set Install = "script" explicitly.
+type Look struct {
+	Name    string   `toml:"name"`
+	Type    string   `toml:"type"`
+	URL     string   `toml:"url"`
+	SHA256  string   `toml:"sha256"`
+	Local   string   `toml:"local"`
+	Install string   `toml:"install"`
+	Script  string   `toml:"script"`
+	Args    []string `toml:"args"`
 }
 
-// AllowedExternalPkgTypes enumerates the kpackagetool6 structure names
-// (plus the two special-cases handled by direct extract). Kept here so
-// validators and renderers share one source.
-var AllowedExternalPkgTypes = []string{
+// AllowedLookTypes enumerates the kpackagetool6 structure names plus the
+// two special-cases handled by direct extract (icons, cursors).
+var AllowedLookTypes = []string{
 	"Plasma/LookAndFeel",
 	"Plasma/Theme",
 	"Plasma/Wallpaper",
@@ -246,6 +272,15 @@ var AllowedExternalPkgTypes = []string{
 	"KWin/Script",
 	"icons",
 	"cursors",
+}
+
+// AllowedLookInstallStrategies enumerates the install: values. "auto" is
+// the default and lets Riced choose by inspecting the source.
+var AllowedLookInstallStrategies = []string{
+	"auto",
+	"kpackage",
+	"extract",
+	"script",
 }
 
 // Allowed enum values, kept here so validators and docs share one source.
