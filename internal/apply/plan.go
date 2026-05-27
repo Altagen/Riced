@@ -23,7 +23,7 @@ import (
 // Action is one atomic step in an apply Plan. The CLI prints these to the
 // user before asking for confirmation, the executor walks them in order.
 type Action struct {
-	// Kind is one of: "copy", "symlink", "mkdir", "kde".
+	// Kind is one of: "copy", "symlink", "mkdir", "kde", "external".
 	Kind string
 
 	// Src is the source path on disk for copy/symlink actions, or the
@@ -474,7 +474,7 @@ func (p *Plan) Format() string {
 	fmt.Fprintf(&b, "  build:  %s\n", p.BuildDir)
 	fmt.Fprintf(&b, "  backup: %s\n\n", p.BackupDir)
 
-	var copies, symlinks, kdeCalls int
+	var copies, symlinks, kdeCalls, looks int
 	for _, a := range p.Actions {
 		switch a.Kind {
 		case "mkdir":
@@ -497,8 +497,24 @@ func (p *Plan) Format() string {
 				fmt.Fprintf(&b, "  kde     %s\n", a.Src)
 			}
 			kdeCalls++
+		case "external":
+			// Args = [type, source, sha256, install, script, ...args]
+			// Display the human-readable summary, hiding the sha256 hex
+			// (still printed in full when --verbose is added later).
+			if len(a.Args) >= 5 {
+				fmt.Fprintf(&b, "  look    %s (type=%s %s install=%s",
+					a.Src, a.Args[0], a.Args[1], a.Args[3])
+				if a.Args[3] == "script" && a.Args[4] != "" {
+					fmt.Fprintf(&b, " script=%s", a.Args[4])
+					if len(a.Args) > 5 {
+						fmt.Fprintf(&b, " args=%v", a.Args[5:])
+					}
+				}
+				fmt.Fprintln(&b, ")")
+			}
+			looks++
 		}
 	}
-	fmt.Fprintf(&b, "\n%d file(s), %d symlink(s), %d KDE call(s).\n", copies, symlinks, kdeCalls)
+	fmt.Fprintf(&b, "\n%d file(s), %d symlink(s), %d KDE call(s), %d look(s).\n", copies, symlinks, kdeCalls, looks)
 	return b.String()
 }
