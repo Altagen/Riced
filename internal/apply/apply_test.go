@@ -1096,3 +1096,31 @@ func TestApply_F19LookLocalSource(t *testing.T) {
 		t.Errorf("KPackageInstall not called with local dir; calls:\n  %v", env.KDE.Calls)
 	}
 }
+
+// TestExecute_RequiresKDEWhenKDEActions covers 0.1.3 A4: if a plan
+// contains any kind="kde" action and Execute is called with
+// ExecOptions.KDE == nil, surface that as an error rather than silently
+// skipping the side effect (the pre-fix behavior swallowed a real bug:
+// "Riced ran, nothing changed").
+func TestExecute_RequiresKDEWhenKDEActions(t *testing.T) {
+	env := setupFakeApply(t)
+	env.Manifest.Icons = manifest.Icons{Theme: "Adwaita"}
+
+	plan, err := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	err = apply.Execute(plan, apply.ExecOptions{
+		// KDE intentionally nil
+		Now: func() time.Time { return env.Now },
+	})
+	if err == nil {
+		t.Fatal("Execute with KDE=nil should have errored on the kde action")
+	}
+	if !strings.Contains(err.Error(), "kde") && !strings.Contains(err.Error(), "KDE") {
+		t.Errorf("error should mention the missing KDE adapter, got: %v", err)
+	}
+}

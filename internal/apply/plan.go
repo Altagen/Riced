@@ -11,6 +11,7 @@ package apply
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -141,10 +142,9 @@ func (t Targets) Map(slug, relSrc string) (string, bool) {
 		return filepath.Join(configHome, "gtk-4.0", "gtk.css"), true
 
 	case relSrc == "wallpaper.ini":
-		// Not directly applied in Phase 8 v1 -- the apply layer integrates
-		// wallpapers via plasma-apply-wallpaperimage (single mode) or via a
-		// user-facing instruction (slideshow mode). The descriptor stays in
-		// the cache for inspection.
+		// Legacy Plasma descriptor: kept in the build dir for inspection
+		// only. Wallpaper application goes through plasma-apply-wallpaperimage
+		// (single) or the plasmashell JS slideshow path (slideshow mode).
 		return "", false
 
 	case strings.HasPrefix(relSrc, "wallpapers"+string(filepath.Separator)):
@@ -226,7 +226,10 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 			launcherIconDst = dst
 		}
 		// Capture the lock-screen wallpaper destination for kscreenlockerrc.
-		if filepath.Dir(rel) == "lock" && strings.HasPrefix(filepath.Base(rel), "lock") {
+		// materializeLockWallpaper always names the symlink "lock.<ext>", so
+		// match on the exact prefix "lock." -- otherwise a sibling file
+		// named e.g. "lockfile.png" would shadow the real one.
+		if filepath.Dir(rel) == "lock" && strings.HasPrefix(filepath.Base(rel), "lock.") {
 			lockWallpaperDst = dst
 		}
 		// Capture the first wallpaper's destination. WalkDir is lexical,
@@ -269,8 +272,10 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 			kind = "symlink"
 		}
 		pre := isRegularFile(e.dst)
-		if _, owned := ricedOwned[e.dst]; owned {
+		if _, owned := ricedOwned[e.dst]; owned && pre {
 			// Riced wrote this on a previous apply -- not a user original.
+			// Debug-log so a confused user can grep for it when re-applying.
+			slog.Debug("skipping backup (Riced-owned from previous apply)", "path", e.dst)
 			pre = false
 		}
 		plan.Actions = append(plan.Actions, Action{
