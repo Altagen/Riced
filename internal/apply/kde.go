@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -187,9 +188,16 @@ func (k RealKDE) SetKonsoleDefaultProfile(profileFilename string) error {
 // (e.g. "Greeter/Wallpaper/org.kde.image/General" expands to four
 // `--group` flags). This is how Plasma's kscreenlockerrc nests its
 // wallpaper config.
+//
+// Defensive: rejects group segments containing ".." -- kwriteconfig6
+// itself accepts arbitrary group names, so a malicious manifest could
+// otherwise navigate sideways in the config tree.
 func (k RealKDE) WriteINIKey(file, group, key, value string) error {
 	args := []string{"--file", file}
 	for _, g := range strings.Split(group, "/") {
+		if g == ".." || g == "." || strings.Contains(g, "/") {
+			return fmt.Errorf("invalid group segment %q in %q", g, group)
+		}
 		args = append(args, "--group", g)
 	}
 	args = append(args, "--key", key, value)
@@ -233,17 +241,26 @@ func (k RealKDE) SetLauncherIcon(iconPath string) error {
 }
 
 // jsStringEscape escapes a path so it can be safely embedded inside a
-// JavaScript double-quoted string literal. Limited to the only two
-// characters that matter for filesystem paths on Linux: backslash and
-// double quote. (Newlines aren't possible in a filesystem path either.)
+// JavaScript double-quoted string literal. Handles backslash, double
+// quote, newline, and carriage return. Newlines + CR are technically
+// legal in Linux file names (rare but possible) and would otherwise
+// terminate the JS string literal mid-script -- a malformed JS would
+// surface as a confusing plasmashell evaluateScript error rather than a
+// clean Riced refusal.
 func jsStringEscape(s string) string {
 	out := make([]byte, 0, len(s))
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if c == '\\' || c == '"' {
-			out = append(out, '\\')
+		switch c {
+		case '\\', '"':
+			out = append(out, '\\', c)
+		case '\n':
+			out = append(out, '\\', 'n')
+		case '\r':
+			out = append(out, '\\', 'r')
+		default:
+			out = append(out, c)
 		}
-		out = append(out, c)
 	}
 	return string(out)
 }
@@ -268,27 +285,46 @@ func (k RealKDE) ApplyLookAndFeel(packageID string) error {
 // kpackagetool6 -i is idempotent only when the package isn't already
 // installed; we fall back to -u (upgrade) so re-apply doesn't fail when
 // the package is unchanged.
+//
+// If install AND upgrade both fail, we surface both errors via
+// errors.Join so the user can tell whether the package is genuinely
+// broken vs a transient kpackagetool6 hiccup.
 func (k RealKDE) KPackageInstall(pkgType, sourcePath string) error {
-	if err := k.run("kpackagetool6", "-t", pkgType, "-i", sourcePath); err != nil {
-		return k.run("kpackagetool6", "-t", pkgType, "-u", sourcePath)
+	installErr := k.run("kpackagetool6", "-t", pkgType, "-i", sourcePath)
+	if installErr == nil {
+		return nil
+	}
+	if upgradeErr := k.run("kpackagetool6", "-t", pkgType, "-u", sourcePath); upgradeErr != nil {
+		return errors.Join(installErr, upgradeErr)
 	}
 	return nil
 }
 
 // extractArchive expands a .tar.gz / .tar.xz / .zip archive into dst.
 // Shells out to tar / unzip (already-required system tools). Lives in
-// the apply package; called from external.go's resolveLookSource.
+// kde.go; called from external.go's resolveLookSource.
+//
+// Captures stderr so a corrupted archive surfaces as a useful diagnostic
+// (e.g. "gzip: stdin: invalid magic") rather than the bare "exit status 2".
 func extractArchive(archivePath, dst string) error {
+	var cmd *exec.Cmd
 	lower := strings.ToLower(archivePath)
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		return exec.Command("tar", "-xzf", archivePath, "-C", dst).Run()
+		cmd = exec.Command("tar", "-xzf", archivePath, "-C", dst)
 	case strings.HasSuffix(lower, ".tar.xz"):
-		return exec.Command("tar", "-xJf", archivePath, "-C", dst).Run()
+		cmd = exec.Command("tar", "-xJf", archivePath, "-C", dst)
 	case strings.HasSuffix(lower, ".zip"):
-		return exec.Command("unzip", "-qq", "-o", archivePath, "-d", dst).Run()
+		cmd = exec.Command("unzip", "-qq", "-o", archivePath, "-d", dst)
+	default:
+		return fmt.Errorf("unsupported archive extension: %s", archivePath)
 	}
-	return fmt.Errorf("unsupported archive extension: %s", archivePath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("extract %s: %w\n--- tool output ---\n%s",
+			filepath.Base(archivePath), err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func (k RealKDE) run(name string, args ...string) error {
