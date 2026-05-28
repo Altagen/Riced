@@ -18,13 +18,13 @@ Pipeline, in order:
 4. **Load previous state** from `~/.riced/state/current.toml`. Used by the planner to mark Riced-managed files (already on disk from a previous apply) as non-backupable and to inherit a sticky `BackupRoot` (see [Sticky BackupRoot](#sticky-backuproot)).
 5. **Build a Plan**: a deterministic list of file actions (`mkdir`, `copy`, `symlink`) plus KDE side-effects. The plan is computed up front so dry-run can print it and confirmation can quote it.
 6. **Display** the plan and (unless `--yes`) prompt `Proceed? [y/N]`. Anything other than `y` / `yes` aborts without writing anything.
-7. **Check prerequisites** before any write: `plasma-apply-colorscheme`, `plasma-apply-wallpaperimage`, `kwriteconfig6`, and a qdbus binary (`qdbus6` or `qdbus`) must be on `PATH`. `plasmashell` must respond to a DBus probe within 5 seconds. Missing tooling aborts with an actionable message — no half-applied state.
+7. **Check prerequisites** before any write: `plasma-apply-colorscheme`, `plasma-apply-wallpaperimage`, `plasma-apply-cursortheme`, `plasma-apply-desktoptheme`, `plasma-apply-lookandfeel`, `kwriteconfig6`, `kbuildsycoca6`, `kpackagetool6`, a qdbus binary (`qdbus6` or `qdbus`), plus `tar` and `unzip` (for the `looks` extract strategy) must be on `PATH`. `plasmashell` must respond to a DBus probe within 5 seconds. Missing tooling aborts with an actionable message — no half-applied state.
 8. **Acquire the lock** (`~/.riced/state/.lock`, atomic `O_CREATE|O_EXCL`).
 9. **Cleanup previous apply**: files that the previous theme wrote but that the new plan won't re-write (slug-scoped `.colors` / `.profile` files when switching themes) are removed and empty Riced-managed parent dirs are pruned.
 10. **Execute** the plan:
     - For each `copy`/`symlink` whose destination already exists **AND** isn't a Riced-managed file from a previous apply, **back up the original** to the backup root before overwriting.
     - Copy/symlink the rendered file into place (atomic tmp+rename).
-    - Invoke the KDE adapter for `plasma-apply-*`, `kwriteconfig6`, `set-launcher-icon`, `set-wallpaper-slideshow`, and `qdbus6 reconfigure`.
+    - Invoke the KDE adapter for `plasma-apply-*`, `kwriteconfig6`, `kbuildsycoca6` (after an icon theme write), `set-launcher-icon`, `set-wallpaper-slideshow`, and `qdbus6 reconfigure`.
 11. **Record state** in `~/.riced/state/current.toml`: slug, repo, timestamp, every path written, backup root.
 
 `--dry-run` exits between steps 6 and 7: plan is printed, nothing else happens.
@@ -63,6 +63,7 @@ Every line tagged `kde` in the apply plan maps to one of these adapter methods o
 | `set-launcher-icon <path>` | `SetLauncherIcon(path)` | `qdbus6 org.kde.plasmashell /PlasmaShell evaluateScript "<JS>"` — walks `panels()` → `widgets()`, swaps the `icon` config key on every kickoff/kicker/kickerdash applet. |
 | `set-wallpaper-slideshow <interval>` (Args = rule list) | `SetWallpaperSlideshow(rules, interval)` | `qdbus6 … evaluateScript "<JS>"` — walks `desktops()`, evaluates rules CSS-cascade-style per screen, writes `SlidePaths` / `SlideInterval` / `FillMode`. |
 | `qdbus6 org.kde.KWin /KWin reconfigure` | `ReconfigureKWin()` | `qdbus6 org.kde.KWin /KWin reconfigure` — picks up the `kwriteconfig6` edits. |
+| `kbuildsycoca6` | `RefreshSystemCache()` | `kbuildsycoca6 --noincremental` — emitted right after the `kdeglobals` `Icons/Theme` write so newly-launched apps see the new icon theme without a log out / log in. |
 
 ### qdbus6 vs qdbus
 
@@ -95,7 +96,7 @@ Desktops that no rule claims keep their current wallpaper.
 - **Confirmation is mandatory in interactive mode.** Without `--yes`, anything other than an explicit `y`/`yes` aborts. EOF on stdin = abort.
 - **Files are backed up before overwrite — but only originals, never Riced's own output.** The planner marks any destination listed in `prev.WrittenAt` as non-backupable: re-applying a theme will not overwrite the previous backup of the user's genuine pre-Riced state with Riced's own output (a class of silent data loss this codebase has a regression test for).
 - **Sticky BackupRoot.** When a previous apply already has a backup directory that exists on disk, the new apply **reuses** it instead of creating a new timestamped one. State always points at a single backup root — the original one capturing the user's pre-Riced state.
-- **Prereq check before lock.** `plasma-apply-*`, `kwriteconfig6`, and `qdbus6` must be on `PATH` before the lock is taken. Wrong desktop environment? Clear error, no half-applied state, no orphan lock.
+- **Prereq check before lock.** The full set (`plasma-apply-*`, `kwriteconfig6`, `kbuildsycoca6`, `kpackagetool6`, `qdbus6`, `tar`, `unzip`) must be on `PATH` before the lock is taken. Wrong desktop environment? Clear error, no half-applied state, no orphan lock.
 - **State persisted on failure.** Execute uses a deferred state save so even a partial apply records every path successfully written. `riced revert` can clean them.
 - **The KDE side-effect surface is mockable.** `apply.KDE` is an interface. Tests use `apply.FakeKDE` which records calls; production uses `apply.RealKDE` which shells out. The apply pipeline can be tested end-to-end without ever touching a live session.
 - **Cross-process exclusion via a filesystem lock.** A file at `~/.riced/state/.lock` is created with `O_CREATE|O_EXCL` (POSIX-atomic on local filesystems) before any mutating operation. `apply`, `revert`, and `clean-backups` all acquire it; the second concurrent invocation fails with a clear error naming the PID of the holder. `doctor` does NOT take the lock — it's read-only and should report the situation honestly even when an apply is mid-flight.

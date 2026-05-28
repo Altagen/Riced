@@ -103,7 +103,7 @@ Riced supports three layouts: a single image, a flat slideshow mirrored across e
 | `paths` | array of string | — | Flat list, mirrored across every screen. Mutually exclusive with `[[wallpapers.screens]]`. |
 | `lock_image` | string | — | Wallpaper shown on the lock screen. Optional; when empty the lock screen keeps Plasma's existing wallpaper. Written to `kscreenlockerrc` Greeter/Wallpaper/org.kde.image/General/Image. |
 | `mirror` | bool | `false` | Explicit alias for the flat-mirror semantics. Mutually exclusive with `[[wallpapers.screens]]`. |
-| `screens` | array of tables | — | Per-screen rule cascade. See below. |
+| `screens` | array of tables | — | Per-screen rule cascade. See below. Requires `mode = "slideshow"`; combining with `mode = "single"` is rejected by `riced validate`. |
 
 ### Single mode
 
@@ -164,7 +164,7 @@ paths = ["wallpapers/default.png"]
 
 - A criterion that matches nothing on the current machine (e.g. `index = 5` on a 2-screen rig, or `orientation = "vertical"` when all screens are horizontal) is a silent no-op. The remaining rules still evaluate normally.
 - A screen claimed by no rule keeps its current wallpaper. Apply does not crash, does not warn loudly.
-- Validation enforces: exactly one criterion per entry, no duplicate `index`/`orientation`/`match` across entries, `paths` non-empty, `index >= 0`, `orientation` in `{vertical, horizontal}`.
+- Validation enforces: exactly one criterion per entry, no duplicate `index`/`orientation`/`match` across entries, `paths` non-empty, `index >= 0`, `orientation` in `{vertical, horizontal}`. Per-screen lists also require `mode = "slideshow"` — combining them with `mode = "single"` is rejected.
 
 ---
 
@@ -242,7 +242,7 @@ opacity = 0.80
 
 | Section | Key | Notes |
 |---|---|---|
-| `[icons]`   | `theme` | Icon theme directory name (under `/usr/share/icons/` or `~/.local/share/icons/`). Applied via `kwriteconfig6 kdeglobals Icons Theme`. |
+| `[icons]`   | `theme` | Icon theme directory name (under `/usr/share/icons/` or `~/.local/share/icons/`). Applied via `kwriteconfig6 kdeglobals Icons Theme`, followed by `kbuildsycoca6 --noincremental` so newly-launched apps pick up the change without a log out / log in. |
 | `[cursors]` | `theme` | Cursor theme directory name (e.g. `capitaine-cursors`). Applied via `plasma-apply-cursortheme`. |
 | `[plasma]`  | `desktop_theme` | Plasma Style name (panel widgets, popups). Applied via `plasma-apply-desktoptheme`. |
 
@@ -288,7 +288,7 @@ Exactly one of `url` (with mandatory `sha256`) or `local` (without `sha256`) per
 name   = "Tela Dark Icons"
 type   = "icons"
 url    = "https://github.com/vinceliuice/Tela-icon-theme/archive/refs/tags/2024-04-20.tar.gz"
-sha256 = "abc...64chars"
+sha256 = "abc...64chars"        # strict 64-char hex (lowercase or uppercase), validated up front
 install = "script"           # required because Tela ships install.sh, not extract-ready
 script  = "install.sh"
 args    = ["-d", "$HOME/.local/share/icons"]
