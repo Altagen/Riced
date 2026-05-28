@@ -39,6 +39,11 @@ var hexColor = regexp.MustCompile(`^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$`)
 // slug matches kebab-case identifiers.
 var slug = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
+// sha256Hex matches a lower- OR upper-case 64-char hex string. Used to
+// validate looks.sha256 so a typo with non-hex chars surfaces here
+// instead of failing at apply time inside the downloader.
+var sha256Hex = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
+
 // Validate runs all schema checks against m and returns a *ValidationError
 // listing every issue found. Returns nil if everything is OK.
 func (m *Manifest) Validate() error {
@@ -105,6 +110,13 @@ func (m *Manifest) Validate() error {
 	// Per-screen mode lets [[wallpapers.screens]] supply the paths,
 	// so the top-level Paths can stay empty in that case.
 	hasScreens := len(m.Wallpapers.Screens) > 0
+	// V2 / plan.go P2: [[screens]] is only meaningful in slideshow mode.
+	// The planner ignores it silently for mode="single" because the
+	// per-screen JS sets wallpaperPlugin=slideshow -- mixing the two
+	// would either be confusing or silently broken. Reject early.
+	if m.Wallpapers.Mode == "single" && hasScreens {
+		add("wallpapers.screens", "only valid when mode = \"slideshow\"; use a flat `paths` list for single mode")
+	}
 	if len(m.Wallpapers.Paths) == 0 && !hasScreens {
 		add("wallpapers.paths", "must contain at least one wallpaper (or define [[wallpapers.screens]])")
 	}
@@ -277,7 +289,7 @@ func (m *Manifest) Validate() error {
 				add(base+".url", fmt.Sprintf("duplicate url %q", p.URL))
 			}
 			seenSource[p.URL] = true
-			if len(p.SHA256) != 64 {
+			if !sha256Hex.MatchString(p.SHA256) {
 				add(base+".sha256", "must be a 64-char hex sha256 (use `sha256sum file.tar.gz`)")
 			}
 		case hasLocal:

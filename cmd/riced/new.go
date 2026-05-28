@@ -23,7 +23,7 @@ func runNew(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprint(os.Stderr, "Usage: riced new theme [args]\n")
 		fmt.Fprint(os.Stderr, "(For repository scaffolding, use `riced repo init`.)\n")
-		return 2
+		return exitUsage
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -32,10 +32,10 @@ func runNew(args []string) int {
 	case "repo":
 		slog.Error("`riced new repo` has been replaced by `riced repo init`",
 			"hint", "run `riced repo init [--register] <path>` instead")
-		return 2
+		return exitUsage
 	default:
 		slog.Error("unknown 'new' subcommand", "sub", sub, "hint", "only 'theme' is supported")
-		return 2
+		return exitUsage
 	}
 }
 
@@ -57,41 +57,41 @@ func runNewTheme(args []string) int {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fs.Usage()
-		return 2
+		return exitUsage
 	}
 	slug := fs.Arg(0)
 	if !isKebab(slug) {
 		slog.Error("invalid slug", "slug", slug, "want", "kebab-case (a-z, 0-9, '-')")
-		return 2
+		return exitUsage
 	}
 	if *mode != "" && *mode != "dark" && *mode != "light" {
 		slog.Error("invalid mode", "mode", *mode, "want", "dark or light")
-		return 2
+		return exitUsage
 	}
 
 	target, err := resolveNewThemeTarget(*repoFlag, slug)
 	if err != nil {
 		slog.Error("resolve target", "err", err)
-		return 1
+		return exitErr
 	}
 	if _, err := os.Stat(target); err == nil {
 		slog.Error("target already exists", "path", target)
-		return 1
+		return exitErr
 	}
 	if err := os.MkdirAll(target, 0o755); err != nil {
 		slog.Error("mkdir", "path", target, "err", err)
-		return 1
+		return exitErr
 	}
 
 	manifestPath := filepath.Join(target, manifest.FileName)
 	body := newThemeManifest(slug, *from, *mode)
 	if err := os.WriteFile(manifestPath, []byte(body), 0o644); err != nil {
 		slog.Error("write theme.toml", "err", err)
-		return 1
+		return exitErr
 	}
 
 	fmt.Printf("Created theme at %s\n", manifestPath)
@@ -101,7 +101,7 @@ func runNewTheme(args []string) int {
 		fmt.Printf("Next: edit theme.toml to override what differs from %q.\n", *from)
 	}
 	fmt.Printf("Then: riced validate %s\n", target)
-	return 0
+	return exitOK
 }
 
 // resolveNewThemeTarget returns the absolute directory where a new theme

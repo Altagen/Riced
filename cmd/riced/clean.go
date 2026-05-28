@@ -24,13 +24,13 @@ func runCleanBackups(args []string) int {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
 		slog.Error("resolve HOME", "err", err)
-		return 1
+		return exitErr
 	}
 
 	// Lock against concurrent apply/revert. Without this, GC could delete
@@ -39,14 +39,14 @@ func runCleanBackups(args []string) int {
 	lock, err := apply.AcquireLock(home)
 	if err != nil {
 		slog.Error("acquire lock", "err", err)
-		return 1
+		return exitErr
 	}
 	defer lock.Release()
 
 	state, err := apply.LoadState(apply.StatePath(home))
 	if err != nil {
 		slog.Error("load state", "err", err)
-		return 1
+		return exitErr
 	}
 	current := ""
 	if state != nil {
@@ -61,15 +61,15 @@ func runCleanBackups(args []string) int {
 	})
 	if err != nil {
 		slog.Error("clean backups", "err", err)
-		return 1
+		return exitErr
 	}
 	if len(removed) == 0 {
 		fmt.Println("Nothing to clean.")
-		return 0
+		return exitOK
 	}
 	fmt.Printf("Removed %d backup dir(s):\n", len(removed))
 	for _, p := range removed {
 		fmt.Printf("  %s\n", p)
 	}
-	return 0
+	return exitOK
 }

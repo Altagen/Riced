@@ -41,25 +41,25 @@ func runApply(args []string) int {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fs.Usage()
-		return 2
+		return exitUsage
 	}
 	slug := fs.Arg(0)
 
 	home, err := os.UserHomeDir()
 	if err != nil {
 		slog.Error("resolve HOME", "err", err)
-		return 1
+		return exitErr
 	}
 
 	// Resolve manifest through the registry.
 	reg, err := registry.Load()
 	if err != nil {
 		slog.Error("load registry", "err", err)
-		return 1
+		return exitErr
 	}
 	userThemes, _ := userThemesDir()
 	src := registry.Source{Registry: reg, UserThemesDir: userThemes}
@@ -67,16 +67,16 @@ func runApply(args []string) int {
 	themeDir, err := src.FindTheme(slug)
 	if err != nil {
 		slog.Error("resolve theme", "slug", slug, "err", err)
-		return 1
+		return exitErr
 	}
 	m, err := manifest.ResolveDir(themeDir, []manifest.Source{src})
 	if err != nil {
 		slog.Error("load manifest", "err", err)
-		return 1
+		return exitErr
 	}
 	if err := m.Validate(); err != nil {
 		emitValidationIssues(err)
-		return 1
+		return exitErr
 	}
 
 	// Generate to cache.
@@ -87,11 +87,11 @@ func runApply(args []string) int {
 	themeOut := filepath.Join(outDir, m.Meta.Slug)
 	if err := os.MkdirAll(themeOut, 0o755); err != nil {
 		slog.Error("create cache dir", "dir", themeOut, "err", err)
-		return 1
+		return exitErr
 	}
 	if _, err := renderAll(m, themeOut); err != nil {
 		slog.Error("generate", "err", err)
-		return 1
+		return exitErr
 	}
 
 	// Build plan.
@@ -106,7 +106,7 @@ func runApply(args []string) int {
 	prevState, err := apply.LoadState(statePath)
 	if err != nil {
 		slog.Error("load previous state", "err", err)
-		return 1
+		return exitErr
 	}
 
 	// Sticky BackupRoot: if a previous apply already captured originals
@@ -122,7 +122,7 @@ func runApply(args []string) int {
 	plan, err := apply.Build(m, themeOut, apply.NewTargets(home), statePath, backupRoot, prevState)
 	if err != nil {
 		slog.Error("build plan", "err", err)
-		return 1
+		return exitErr
 	}
 	plan.Repo = repoName
 
@@ -131,7 +131,7 @@ func runApply(args []string) int {
 
 	if *dryRun {
 		slog.Info("dry-run, exiting before any write")
-		return 0
+		return exitOK
 	}
 
 	// Refuse to touch the system if the KDE Plasma 6 tooling isn't even
@@ -141,7 +141,7 @@ func runApply(args []string) int {
 	// inside Execute.
 	if err := apply.CheckPrerequisites(); err != nil {
 		slog.Error("prerequisites", "err", err)
-		return 1
+		return exitErr
 	}
 	// Same idea for plasmashell -- our launcher icon JS depends on it.
 	// Only warn (don't abort) when plasmashell is dead: the rest of the
@@ -153,7 +153,7 @@ func runApply(args []string) int {
 	if !*yes {
 		if !confirm("Proceed?") {
 			slog.Warn("aborted by user")
-			return 2
+			return exitUsage
 		}
 	}
 
@@ -162,7 +162,7 @@ func runApply(args []string) int {
 	lock, err := apply.AcquireLock(home)
 	if err != nil {
 		slog.Error("acquire lock", "err", err)
-		return 1
+		return exitErr
 	}
 	defer lock.Release()
 
@@ -182,11 +182,11 @@ func runApply(args []string) int {
 		Now: func() time.Time { return now },
 	}); err != nil {
 		slog.Error("execute", "err", err)
-		return 1
+		return exitErr
 	}
 
 	slog.Info("applied", "slug", m.Meta.Slug, "backup", backupRoot)
-	return 0
+	return exitOK
 }
 
 // confirm reads a line from stdin and returns true only for an explicit

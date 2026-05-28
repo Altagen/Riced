@@ -25,7 +25,7 @@ var completionsFS embed.FS
 func runCompletion(args []string) int {
 	if len(args) != 1 {
 		fmt.Fprint(os.Stderr, "Usage: riced completion <fish|bash>\n")
-		return 2
+		return exitUsage
 	}
 	shell := args[0]
 	var path string
@@ -36,17 +36,17 @@ func runCompletion(args []string) int {
 		path = "completions/riced.bash"
 	default:
 		slog.Error("unsupported shell", "shell", shell, "supported", "fish, bash")
-		return 2
+		return exitUsage
 	}
 
 	data, err := completionsFS.ReadFile(path)
 	if err != nil {
 		slog.Error("read embedded completion", "shell", shell, "err", err)
-		return 1
+		return exitErr
 	}
 	if _, err := os.Stdout.Write(data); err != nil {
 		slog.Error("write completion", "err", err)
-		return 1
+		return exitErr
 	}
-	return 0
+	return exitOK
 }

@@ -21,13 +21,22 @@ const (
 	envLogFormat = "RICED_LOG_FORMAT"
 )
 
+// Exit codes returned by run* subcommand handlers and surfaced via
+// os.Exit. Keep this list authoritative -- any subcommand that returns
+// a value outside this set is a bug.
+const (
+	exitOK    = 0 // success
+	exitErr   = 1 // runtime error (validation, IO, exec, etc.)
+	exitUsage = 2 // bad usage / user refused interactive prompt
+)
+
 func main() {
 	args := os.Args[1:]
 	args = setupLogging(args)
 
 	if len(args) == 0 {
 		usage()
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 
 	cmd, rest := args[0], args[1:]
@@ -65,7 +74,7 @@ func main() {
 	default:
 		slog.Error("unknown command", "cmd", cmd)
 		usage()
-		os.Exit(2)
+		os.Exit(exitUsage)
 	}
 }
 

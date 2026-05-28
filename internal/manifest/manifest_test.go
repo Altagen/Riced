@@ -133,6 +133,24 @@ func TestValidate_WallpapersScreensExclusivity(t *testing.T) {
 			wantField: "wallpapers.mirror",
 		},
 		{
+			// 0.1.3 V2: mode=single is incompatible with [[screens]] --
+			// the planner's per-screen JS sets wallpaperPlugin=slideshow,
+			// so mixing the two would silently misbehave.
+			name: "single mode + screens rejected",
+			m: manifest.Manifest{
+				SchemaVersion: 1,
+				Meta:          manifest.Meta{Name: "x", Slug: "x", Mode: "dark"},
+				Palette:       manifest.Palette{BG: "#000000", Surface: "#111111", Text: "#ffffff", Accent: "#ff2a4b"},
+				Wallpapers: manifest.Wallpapers{
+					Mode: "single",
+					Screens: []manifest.WallpapersScreen{
+						{Index: intPtr(0), Paths: []string{"a.png"}},
+					},
+				},
+			},
+			wantField: "wallpapers.screens",
+		},
+		{
 			name: "duplicate screen index rejected",
 			m: manifest.Manifest{
 				SchemaVersion: 1,
@@ -172,6 +190,67 @@ func TestValidate_WallpapersScreensExclusivity(t *testing.T) {
 }
 
 func intPtr(v int) *int { return &v }
+
+// TestValidate_LookSHA256Hex covers the 0.1.3 V1 fix: looks.sha256 must
+// be a 64-char hex string. Pre-fix the validator only checked length,
+// so "g" * 64 or "abc" would slip through and only fail much later at
+// download time. We exercise the common typos.
+func TestValidate_LookSHA256Hex(t *testing.T) {
+	base := manifest.Manifest{
+		SchemaVersion: 1,
+		Meta:          manifest.Meta{Name: "x", Slug: "x", Mode: "dark"},
+		Palette:       manifest.Palette{BG: "#000000", Surface: "#111111", Text: "#ffffff", Accent: "#ff2a4b"},
+		Wallpapers: manifest.Wallpapers{
+			Mode:  "single",
+			Paths: []string{}, // satisfy required-at-least-one via screens... actually we leave invalid + filter
+		},
+	}
+	// Drop the wallpapers requirement by giving it one entry that doesn't
+	// need to resolve on disk: an absolute path that won't be checked by
+	// checkRelFileExists -- it's relative-checked, so we can't easily.
+	// Instead, accept the wallpapers issue and just check the sha256
+	// issue is also surfaced (Validate accumulates).
+	cases := []struct {
+		name   string
+		sha256 string
+		want   bool // expect a sha256 error
+	}{
+		{"valid 64-char hex lower", strings.Repeat("a", 64), false},
+		{"valid 64-char hex upper", strings.Repeat("A", 64), false},
+		{"valid 64-char hex mixed", strings.Repeat("aF", 32), false},
+		{"too short", strings.Repeat("a", 32), true},
+		{"too long", strings.Repeat("a", 80), true},
+		{"non-hex chars", strings.Repeat("g", 64), true},
+		{"contains spaces", strings.Repeat("a", 63) + " ", true},
+		{"empty", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := base
+			m.Looks = []manifest.Look{{
+				Name:   "tela",
+				Type:   "icons",
+				URL:    "https://example.test/x.tar.gz",
+				SHA256: tc.sha256,
+			}}
+			err := m.Validate()
+			var verr *manifest.ValidationError
+			if !errors.As(err, &verr) {
+				t.Fatalf("Validate returned %T, want *ValidationError: %v", err, err)
+			}
+			var hasShaIssue bool
+			for _, iss := range verr.Issues {
+				if strings.Contains(iss.Field, ".sha256") {
+					hasShaIssue = true
+					break
+				}
+			}
+			if hasShaIssue != tc.want {
+				t.Errorf("sha256 issue present = %v, want %v\nissues: %v", hasShaIssue, tc.want, verr.Issues)
+			}
+		})
+	}
+}
 
 func TestValidate_AccumulatesIssues(t *testing.T) {
 	// bad_enum has multiple invalid enums; Validate should surface several

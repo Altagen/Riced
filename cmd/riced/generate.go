@@ -28,18 +28,18 @@ func runGenerate(args []string) int {
 	}
 
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fs.Usage()
-		return 2
+		return exitUsage
 	}
 
 	slog.Debug("resolving manifest", "dir", fs.Arg(0))
 	m, err := manifest.ResolveDir(fs.Arg(0), nil)
 	if err != nil {
 		slog.Error("load manifest", "err", err)
-		return 1
+		return exitErr
 	}
 	if m.Meta.Inherits != "" {
 		slog.Debug("merged parent", "inherits", m.Meta.Inherits)
@@ -47,7 +47,7 @@ func runGenerate(args []string) int {
 
 	if err := m.Validate(); err != nil {
 		emitValidationIssues(err)
-		return 1
+		return exitErr
 	}
 
 	summarize(m)
@@ -55,20 +55,20 @@ func runGenerate(args []string) int {
 	themeOut := filepath.Join(*outDir, m.Meta.Slug)
 	if err := os.MkdirAll(themeOut, 0o755); err != nil {
 		slog.Error("create output dir", "dir", themeOut, "err", err)
-		return 1
+		return exitErr
 	}
 
 	written, err := renderAll(m, themeOut)
 	if err != nil {
 		slog.Error("render", "err", err)
-		return 1
+		return exitErr
 	}
 
 	fmt.Println("\nWrote:")
 	for _, p := range written {
 		fmt.Printf("  %s\n", p)
 	}
-	return 0
+	return exitOK
 }
 
 // renderAll runs every Phase 3+ renderer against m and writes its output

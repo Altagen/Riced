@@ -19,23 +19,23 @@ func runRevert(args []string) int {
 	yes := fs.Bool("yes", false, "skip the confirmation prompt")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
 		slog.Error("resolve HOME", "err", err)
-		return 1
+		return exitErr
 	}
 
 	state, err := apply.LoadState(apply.StatePath(home))
 	if err != nil {
 		slog.Error("load state", "err", err)
-		return 1
+		return exitErr
 	}
 	if state == nil {
 		fmt.Println("No state to revert.")
-		return 0
+		return exitOK
 	}
 
 	fmt.Printf("This will remove %d Riced-written file(s)", len(state.WrittenAt))
@@ -47,7 +47,7 @@ func runRevert(args []string) int {
 	if !*yes {
 		if !confirm("Proceed?") {
 			slog.Warn("aborted by user")
-			return 2
+			return exitUsage
 		}
 	}
 
@@ -57,14 +57,14 @@ func runRevert(args []string) int {
 	lock, err := apply.AcquireLock(home)
 	if err != nil {
 		slog.Error("acquire lock", "err", err)
-		return 1
+		return exitErr
 	}
 	defer lock.Release()
 
 	if err := apply.Revert(home); err != nil {
 		slog.Error("revert", "err", err)
-		return 1
+		return exitErr
 	}
 	slog.Info("reverted")
-	return 0
+	return exitOK
 }

@@ -128,12 +128,16 @@ func Execute(plan *Plan, opts ExecOptions) (err error) {
 			// only meaningful in tests that hand the executor a regular
 			// file in place of a real symlink -- production code always
 			// goes through materialize* helpers which produce symlinks.
+			// Surface a Warn so a real-prod fallback reveals a Build() bug
+			// instead of staying hidden behind the test-only fallback.
 			target, err := os.Readlink(a.Src)
 			if err != nil {
 				abs, aerr := filepath.Abs(a.Src)
 				if aerr != nil {
 					return fmt.Errorf("read symlink %s: %w", a.Src, err)
 				}
+				slog.Warn("symlink action source is not a symlink, falling back to absolute path -- bug in Build() if seen in production",
+					"src", a.Src, "abs", abs)
 				target = abs
 			}
 			tmp := a.Dst + tmpSuffix()
@@ -149,8 +153,7 @@ func Execute(plan *Plan, opts ExecOptions) (err error) {
 			slog.Debug("symlinked", "dst", a.Dst, "target", target)
 		case "kde":
 			if opts.KDE == nil {
-				slog.Warn("no KDE adapter provided, skipping side effect", "call", a.Src)
-				continue
+				return fmt.Errorf("kde action %q requires opts.KDE; pass RealKDE in production or FakeKDE in tests", a.Src)
 			}
 			if err := dispatchKDE(opts.KDE, a); err != nil {
 				return err
@@ -158,8 +161,7 @@ func Execute(plan *Plan, opts ExecOptions) (err error) {
 			slog.Info("KDE", "call", a.Src, "args", a.Args)
 		case "external":
 			if opts.KDE == nil {
-				slog.Warn("no KDE adapter provided, skipping external package", "name", a.Src)
-				continue
+				return fmt.Errorf("external action %q requires opts.KDE; pass RealKDE in production or FakeKDE in tests", a.Src)
 			}
 			if err := executeExternal(a, opts); err != nil {
 				return err
@@ -203,8 +205,12 @@ func executeExternal(a Action, opts ExecOptions) error {
 //
 // CASES ARE ORDER-SENSITIVE: if you add a new verb whose name is a
 // prefix of an existing one, list yours FIRST (strings.HasPrefix would
-// otherwise shadow it). The current set has no collisions; keep it that
-// way when adding new actions.
+// otherwise shadow it). The current set has no collisions; the
+// kwriteconfig6-konsole-default case sits before the kwriteconfig6
+// exact-match case and works because the exact-match check guards
+// against the prefix overlap. Keep this structure when adding new
+// actions. A future refactor to enum-based verbs (0.2.0) would remove
+// the order requirement; for 0.1.x we stick with the prefix pattern.
 func dispatchKDE(kde KDE, a Action) error {
 	switch {
 	case strings.HasPrefix(a.Src, "plasma-apply-colorscheme "):
@@ -245,6 +251,8 @@ func dispatchKDE(kde KDE, a Action) error {
 		// Match the trailing path so the resolved qdbus binary (qdbus6
 		// or qdbus, see prereqs.QDBusBin) routes to ReconfigureKWin.
 		return kde.ReconfigureKWin()
+	case a.Src == "kbuildsycoca6":
+		return kde.RefreshSystemCache()
 	}
 	return fmt.Errorf("unrecognized KDE action %q (args=%v)", a.Src, a.Args)
 }
@@ -258,6 +266,13 @@ func dispatchKDE(kde KDE, a Action) error {
 //     (computed by mirroring the path under BackupRoot back to /).
 //
 // The state file itself is removed on success.
+//
+// SCOPE: Revert is *file-level only*. It does NOT replay plasma-apply-*
+// to restore the previous color scheme, cursor, decoration, etc. Plasma
+// keeps whatever was applied last (so the visual state remains the just-
+// undone theme) until the user applies another theme or restarts the
+// session. Adding a "remember previous Plasma state" layer is on the
+// roadmap; until then, document this expectation to callers.
 func Revert(homeDir string) error {
 	statePath := StatePath(homeDir)
 	state, err := LoadState(statePath)
@@ -268,19 +283,33 @@ func Revert(homeDir string) error {
 		return fmt.Errorf("nothing to revert: no state file at %s", statePath)
 	}
 
-	// Pass 1: remove Riced-written files, pruning empty Riced-managed
-	// directories afterwards (same scope as CleanupPrevious). We collect
-	// any real (non-not-exist) failures rather than swallowing them -- the
-	// user must hear that revert didn't fully succeed instead of seeing a
-	// reassuring "reverted" log.
+	// Pass 1: remove Riced-written files, then prune empty Riced-managed
+	// dirs in one batched walk at the end. We collect any real (non-not-
+	// exist) failures rather than swallowing them -- the user must hear
+	// that revert didn't fully succeed instead of seeing a reassuring
+	// "reverted" log.
 	var removeFailures []string
+	parentsToPrune := map[string]struct{}{}
 	for _, p := range state.WrittenAt {
 		if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
 			slog.Warn("remove failed during revert", "path", p, "err", err)
 			removeFailures = append(removeFailures, p)
 			continue
 		}
-		pruneEmptyRicedDirs(p)
+		parentsToPrune[filepath.Dir(p)] = struct{}{}
+	}
+	// Sort by depth (deepest first) so child empty-dirs disappear before
+	// we try their parents. pruneEmptyRicedDirs stops at non-empty, so
+	// processing leaves-first lets a chain of empty parents collapse.
+	dirs := make([]string, 0, len(parentsToPrune))
+	for d := range parentsToPrune {
+		dirs = append(dirs, d)
+	}
+	sort.Slice(dirs, func(i, j int) bool {
+		return strings.Count(dirs[i], string(filepath.Separator)) > strings.Count(dirs[j], string(filepath.Separator))
+	})
+	for _, d := range dirs {
+		pruneEmptyRicedDirs(d + string(filepath.Separator)) // pruneEmptyRicedDirs takes a file path; pass dir/<sentinel>
 	}
 
 	// Pass 2: restore from backup, if any.

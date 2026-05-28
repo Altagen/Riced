@@ -1096,3 +1096,84 @@ func TestApply_F19LookLocalSource(t *testing.T) {
 		t.Errorf("KPackageInstall not called with local dir; calls:\n  %v", env.KDE.Calls)
 	}
 }
+
+// TestApply_IconsTriggerSystemCacheRefresh covers task #141 / 0.1.3: after
+// kdeglobals receives an Icons/Theme write, the planner must emit a
+// kbuildsycoca6 action and Execute must dispatch it through
+// KDE.RefreshSystemCache. Without this newly-launched apps keep serving
+// the previous icon theme until the next login -- the live regression that
+// drove the work.
+func TestApply_IconsTriggerSystemCacheRefresh(t *testing.T) {
+	env := setupFakeApply(t)
+	env.Manifest.Icons = manifest.Icons{Theme: "Adwaita"}
+
+	plan, err := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	// kbuildsycoca6 must come AFTER the kdeglobals Icons write; otherwise
+	// we'd rebuild the cache before changing the value and gain nothing.
+	writeIdx, cacheIdx := -1, -1
+	for i, a := range plan.Actions {
+		if a.Kind != "kde" {
+			continue
+		}
+		if a.Src == "kwriteconfig6" && len(a.Args) == 4 &&
+			a.Args[0] == "kdeglobals" && a.Args[1] == "Icons" && a.Args[3] == "Adwaita" {
+			writeIdx = i
+		}
+		if a.Src == "kbuildsycoca6" {
+			cacheIdx = i
+		}
+	}
+	if writeIdx == -1 {
+		t.Fatalf("kdeglobals Icons/Theme write not in plan:\n%s", plan.Format())
+	}
+	if cacheIdx == -1 {
+		t.Fatalf("kbuildsycoca6 not in plan:\n%s", plan.Format())
+	}
+	if cacheIdx < writeIdx {
+		t.Errorf("kbuildsycoca6 emitted before the kdeglobals write (cache=%d write=%d)", cacheIdx, writeIdx)
+	}
+
+	if err := apply.Execute(plan, apply.ExecOptions{
+		KDE: env.KDE,
+		Now: func() time.Time { return env.Now },
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !slices.Contains(env.KDE.Calls, "RefreshSystemCache") {
+		t.Errorf("RefreshSystemCache not called; calls: %v", env.KDE.Calls)
+	}
+}
+
+// TestExecute_RequiresKDEWhenKDEActions covers 0.1.3 A4: if a plan
+// contains any kind="kde" action and Execute is called with
+// ExecOptions.KDE == nil, surface that as an error rather than silently
+// skipping the side effect (the pre-fix behavior swallowed a real bug:
+// "Riced ran, nothing changed").
+func TestExecute_RequiresKDEWhenKDEActions(t *testing.T) {
+	env := setupFakeApply(t)
+	env.Manifest.Icons = manifest.Icons{Theme: "Adwaita"}
+
+	plan, err := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	err = apply.Execute(plan, apply.ExecOptions{
+		// KDE intentionally nil
+		Now: func() time.Time { return env.Now },
+	})
+	if err == nil {
+		t.Fatal("Execute with KDE=nil should have errored on the kde action")
+	}
+	if !strings.Contains(err.Error(), "kde") && !strings.Contains(err.Error(), "KDE") {
+		t.Errorf("error should mention the missing KDE adapter, got: %v", err)
+	}
+}
