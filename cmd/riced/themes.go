@@ -46,13 +46,13 @@ func runThemes(args []string) int {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 
 	reg, err := registry.Load()
 	if err != nil {
 		slog.Error("load registry", "err", err)
-		return 1
+		return exitErr
 	}
 
 	var found []discoveredTheme
@@ -85,7 +85,7 @@ func runThemes(args []string) int {
 		if !*slugsOnly {
 			slog.Warn("no themes found")
 		}
-		return 0
+		return exitOK
 	}
 
 	if *slugsOnly {
@@ -106,11 +106,11 @@ func runThemes(args []string) int {
 		for _, s := range slugs {
 			fmt.Println(s)
 		}
-		return 0
+		return exitOK
 	}
 
 	printGroupedThemes(found)
-	return 0
+	return exitOK
 }
 
 // scanThemesDir walks immediate subdirs of base, loading each theme.toml

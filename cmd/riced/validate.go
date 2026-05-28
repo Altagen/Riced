@@ -30,11 +30,11 @@ func runValidate(args []string) int {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fs.Usage()
-		return 2
+		return exitUsage
 	}
 	themeDir := fs.Arg(0)
 

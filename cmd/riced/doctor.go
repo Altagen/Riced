@@ -28,7 +28,7 @@ func runDoctor(_ []string) int {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		slog.Error("resolve HOME", "err", err)
-		return 1
+		return exitErr
 	}
 
 	issues := 0
@@ -121,10 +121,10 @@ func runDoctor(_ []string) int {
 	fmt.Println()
 	if issues == 0 {
 		fmt.Println("All clear.")
-		return 0
+		return exitOK
 	}
 	fmt.Printf("%d issue(s) found.\n", issues)
-	return 1
+	return exitErr
 }
 
 // findRicedManagedOrphans returns paths that exist under directories

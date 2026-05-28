@@ -14,17 +14,17 @@ func runStatus(_ []string) int {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		slog.Error("resolve HOME", "err", err)
-		return 1
+		return exitErr
 	}
 	statePath := apply.StatePath(home)
 	state, err := apply.LoadState(statePath)
 	if err != nil {
 		slog.Error("load state", "err", err)
-		return 1
+		return exitErr
 	}
 	if state == nil {
 		fmt.Println("No theme is currently applied by Riced.")
-		return 0
+		return exitOK
 	}
 	fmt.Printf("Applied:    %s\n", state.Slug)
 	if state.Repo != "" {
@@ -38,5 +38,5 @@ func runStatus(_ []string) int {
 	for _, p := range state.WrittenAt {
 		fmt.Printf("  %s\n", p)
 	}
-	return 0
+	return exitOK
 }

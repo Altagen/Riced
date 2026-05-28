@@ -27,7 +27,7 @@ func runList(args []string) int {
 	entries, err := os.ReadDir(searchPath)
 	if err != nil {
 		slog.Error("read search path", "path", searchPath, "err", err)
-		return 1
+		return exitErr
 	}
 
 	type row struct {
@@ -67,7 +67,7 @@ func runList(args []string) int {
 
 	if len(rows) == 0 {
 		slog.Warn("no themes found", "path", searchPath)
-		return 0
+		return exitOK
 	}
 
 	sort.Slice(rows, func(i, j int) bool { return rows[i].slug < rows[j].slug })
@@ -79,7 +79,7 @@ func runList(args []string) int {
 	}
 	if err := tw.Flush(); err != nil {
 		slog.Error("flush table", "err", err)
-		return 1
+		return exitErr
 	}
-	return 0
+	return exitOK
 }

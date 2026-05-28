@@ -29,7 +29,7 @@ import (
 func runRepo(args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Usage: riced repo <init|add|list|remove> ...")
-		return 2
+		return exitUsage
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -43,7 +43,7 @@ func runRepo(args []string) int {
 		return runRepoRemove(rest)
 	default:
 		slog.Error("unknown repo subcommand", "sub", sub, "hint", "use init|add|list|remove")
-		return 2
+		return exitUsage
 	}
 }
 
@@ -71,29 +71,29 @@ func runRepoInit(args []string) int {
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() < 1 {
 		fs.Usage()
-		return 2
+		return exitUsage
 	}
 	rawPath := fs.Arg(0)
 	root, err := filepath.Abs(rawPath)
 	if err != nil {
 		slog.Error("resolve path", "err", err)
-		return 1
+		return exitErr
 	}
 	name := filepath.Base(root)
 	if err := registry.ValidateName(name); err != nil {
 		slog.Error("invalid repository name (derived from path's last segment)",
 			"name", name, "err", err)
-		return 2
+		return exitUsage
 	}
 
 	created, err := scaffoldIfMissing(root, name)
 	if err != nil {
 		slog.Error("scaffold", "err", err)
-		return 1
+		return exitErr
 	}
 	if len(created) == 0 {
 		slog.Info("repository already initialized; nothing to do", "path", root)
@@ -108,21 +108,21 @@ func runRepoInit(args []string) int {
 		reg, err := registry.Load()
 		if err != nil {
 			slog.Error("load registry", "err", err)
-			return 1
+			return exitErr
 		}
 		if _, already := reg.Get(name); already {
 			slog.Info("already registered", "name", name)
 		} else if err := reg.Add(registry.Repository{Name: name, Path: root}); err != nil {
 			slog.Error("add to registry", "err", err)
-			return 1
+			return exitErr
 		} else if err := reg.Save(); err != nil {
 			slog.Error("save registry", "err", err)
-			return 1
+			return exitErr
 		} else {
 			slog.Info("registered", "name", name, "path", root)
 		}
 	}
-	return 0
+	return exitOK
 }
 
 // runRepoAdd registers an existing Riced repository in the user registry.
@@ -136,50 +136,50 @@ func runRepoAdd(args []string) int {
 		fmt.Fprint(os.Stderr, "(The path must already contain repository.toml -- run 'riced repo init <path>' first if missing.)\n")
 	}
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 	if fs.NArg() != 1 {
 		fs.Usage()
-		return 2
+		return exitUsage
 	}
 	rawPath := fs.Arg(0)
 	root, err := filepath.Abs(rawPath)
 	if err != nil {
 		slog.Error("resolve path", "err", err)
-		return 1
+		return exitErr
 	}
 	info, err := os.Stat(root)
 	if err != nil {
 		slog.Error("path does not exist", "path", root, "err", err)
-		return 1
+		return exitErr
 	}
 	if !info.IsDir() {
 		slog.Error("path is not a directory", "path", root)
-		return 1
+		return exitErr
 	}
 	if _, err := os.Stat(filepath.Join(root, registry.RepositoryManifestFile)); err != nil {
 		slog.Error("no repository.toml at path",
 			"path", root,
 			"hint", "run 'riced repo init "+rawPath+"' to create the missing scaffold")
-		return 1
+		return exitErr
 	}
 
 	name := filepath.Base(root)
 	reg, err := registry.Load()
 	if err != nil {
 		slog.Error("load registry", "err", err)
-		return 1
+		return exitErr
 	}
 	if err := reg.Add(registry.Repository{Name: name, Path: root}); err != nil {
 		slog.Error("add repository", "err", err)
-		return 1
+		return exitErr
 	}
 	if err := reg.Save(); err != nil {
 		slog.Error("save registry", "err", err)
-		return 1
+		return exitErr
 	}
 	slog.Info("repository registered", "name", name, "path", root)
-	return 0
+	return exitOK
 }
 
 func runRepoList(args []string) int {
@@ -187,27 +187,27 @@ func runRepoList(args []string) int {
 	namesOnly := fs.Bool("names", false, "print repository names only, one per line (for shell completion)")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
-		return 2
+		return exitUsage
 	}
 
 	reg, err := registry.Load()
 	if err != nil {
 		slog.Error("load registry", "err", err)
-		return 1
+		return exitErr
 	}
 	repos := reg.List()
 	if len(repos) == 0 {
 		if !*namesOnly {
 			slog.Warn("no repositories registered")
 		}
-		return 0
+		return exitOK
 	}
 
 	if *namesOnly {
 		for _, r := range repos {
 			fmt.Println(r.Name)
 		}
-		return 0
+		return exitOK
 	}
 
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -217,32 +217,32 @@ func runRepoList(args []string) int {
 	}
 	if err := tw.Flush(); err != nil {
 		slog.Error("flush table", "err", err)
-		return 1
+		return exitErr
 	}
-	return 0
+	return exitOK
 }
 
 func runRepoRemove(args []string) int {
 	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "Usage: riced repo remove <name>")
-		return 2
+		return exitUsage
 	}
 	name := args[0]
 	reg, err := registry.Load()
 	if err != nil {
 		slog.Error("load registry", "err", err)
-		return 1
+		return exitErr
 	}
 	if ok := reg.Remove(name); !ok {
 		slog.Error("repository not found", "name", name)
-		return 1
+		return exitErr
 	}
 	if err := reg.Save(); err != nil {
 		slog.Error("save registry", "err", err)
-		return 1
+		return exitErr
 	}
 	slog.Info("repository unregistered", "name", name, "note", "files on disk were not deleted")
-	return 0
+	return exitOK
 }
 
 // scaffoldIfMissing creates each piece of the standard Riced repository
