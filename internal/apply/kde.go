@@ -276,7 +276,8 @@ func (k RealKDE) KPackageInstall(pkgType, sourcePath string) error {
 }
 
 // extractArchive expands a .tar.gz / .tar.xz / .zip archive into dst.
-// Shells out to tar / unzip (already-required system tools).
+// Shells out to tar / unzip (already-required system tools). Lives in
+// the apply package; called from external.go's resolveLookSource.
 func extractArchive(archivePath, dst string) error {
 	lower := strings.ToLower(archivePath)
 	switch {
