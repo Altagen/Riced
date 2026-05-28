@@ -46,12 +46,22 @@ func DefaultDownload(url, wantSHA, dst string) error {
 		return fmt.Errorf("create %s: %w", tmp, err)
 	}
 	hash := sha256.New()
-	if _, copyErr := io.Copy(io.MultiWriter(out, hash), resp.Body); copyErr != nil {
+	// LimitReader caps total bytes copied. When the upstream sends more
+	// we still read maxDownloadBytes+1 (the limit-exceed signal) and
+	// detect that as an explicit error rather than running OOM.
+	limited := io.LimitReader(resp.Body, maxDownloadBytes+1)
+	written, copyErr := io.Copy(io.MultiWriter(out, hash), limited)
+	if copyErr != nil {
 		if closeErr := out.Close(); closeErr != nil {
 			slog.Warn("download tmp close after copy error", "tmp", tmp, "close_err", closeErr)
 		}
 		_ = os.Remove(tmp)
 		return fmt.Errorf("download %s: %w", url, copyErr)
+	}
+	if written > maxDownloadBytes {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return fmt.Errorf("download %s: exceeds size cap of %d bytes", url, maxDownloadBytes)
 	}
 	if err := out.Close(); err != nil {
 		_ = os.Remove(tmp)
@@ -85,6 +95,17 @@ func existingMatches(path, wantSHA string) bool {
 	return hex.EncodeToString(h.Sum(nil)) == wantSHA
 }
 
+// archiveSHAPrefixLen is the length of the sha-256 prefix kept on the
+// cached archive filename. 12 hex chars give 2^48 namespace collisions
+// resistance, more than enough for a per-user theme cache.
+const archiveSHAPrefixLen = 12
+
+// maxDownloadBytes caps a single look archive download. A malicious URL
+// could otherwise stream gigabytes into the cache; theme archives are
+// typically <50 MB so 200 MB gives generous headroom while preventing
+// disk exhaustion. Surfaces as a clear error rather than running OOM.
+const maxDownloadBytes = 200 << 20 // 200 MiB
+
 // ExternalCacheDir is the persistent download cache root.
 func ExternalCacheDir(homeDir string) string {
 	return filepath.Join(homeDir, ".riced", "cache", "external")
@@ -96,9 +117,11 @@ func LooksDir(homeDir string) string {
 	return filepath.Join(homeDir, ".riced", "looks")
 }
 
-// LookSpec is the decoded shape of an "external" action's Args, parsed
-// out of Plan.Build's positional encoding by parseLookArgs.
-type LookSpec struct {
+// lookSpec is the decoded shape of an "external" action's Args, parsed
+// out of Plan.Build's positional encoding by parseLookArgs. Unexported
+// because parseLookArgs is the only entry point -- external callers
+// build looks via the manifest, not via this struct.
+type lookSpec struct {
 	Type       string   // Plasma/LookAndFeel, icons, ...
 	SourceKind string   // "url" or "local"
 	Source     string   // URL or local subdir name
@@ -108,16 +131,16 @@ type LookSpec struct {
 	Args       []string // script args (env-expanded at exec time)
 }
 
-func parseLookArgs(args []string) (LookSpec, error) {
+func parseLookArgs(args []string) (lookSpec, error) {
 	if len(args) < 5 {
-		return LookSpec{}, fmt.Errorf("malformed look args: want >= 5, got %d", len(args))
+		return lookSpec{}, fmt.Errorf("malformed look args: want >= 5, got %d", len(args))
 	}
 	src := args[1]
 	kind, val, ok := strings.Cut(src, ":")
 	if !ok || (kind != "url" && kind != "local") {
-		return LookSpec{}, fmt.Errorf("malformed look source %q (want url:<...> or local:<name>)", src)
+		return lookSpec{}, fmt.Errorf("malformed look source %q (want url:<...> or local:<name>)", src)
 	}
-	return LookSpec{
+	return lookSpec{
 		Type:       args[0],
 		SourceKind: kind,
 		Source:     val,
@@ -137,7 +160,7 @@ func parseLookArgs(args []string) (LookSpec, error) {
 // extractions are kept across applies (cheap re-apply) but never used as
 // the install target -- the extracted contents are *normalized* into a
 // "root" pointer the strategies operate on.
-func executeLook(spec LookSpec, name string, opts ExecOptions) error {
+func executeLook(spec lookSpec, name string, opts ExecOptions) error {
 	home := opts.HomeDir
 	if home == "" {
 		h, err := os.UserHomeDir()
@@ -231,7 +254,7 @@ func executeLook(spec LookSpec, name string, opts ExecOptions) error {
 // (root) ready for strategy dispatch. Returns the directory plus the
 // original archive path when applicable (kpackage prefers the archive
 // over the extracted tree to preserve metadata.json signatures).
-func resolveLookSource(spec LookSpec, _ string, home string, opts ExecOptions) (root, archivePath string, err error) {
+func resolveLookSource(spec lookSpec, _ string, home string, opts ExecOptions) (root, archivePath string, err error) {
 	switch spec.SourceKind {
 	case "local":
 		dir := filepath.Join(LooksDir(home), spec.Source)
@@ -245,11 +268,20 @@ func resolveLookSource(spec LookSpec, _ string, home string, opts ExecOptions) (
 		if dl == nil {
 			dl = DefaultDownload
 		}
-		archive := filepath.Join(ExternalCacheDir(home), spec.SHA256[:12]+"-"+filepath.Base(spec.Source))
+		// Manifest validation guarantees SHA256 is 64 hex chars here, but
+		// keep a runtime guard so a malformed call (e.g. tests that bypass
+		// validation) errors cleanly instead of panicking on the slice.
+		if len(spec.SHA256) < archiveSHAPrefixLen {
+			return "", "", fmt.Errorf("sha256 too short (%d chars) -- url sources require a 64-hex sha256", len(spec.SHA256))
+		}
+		archive := filepath.Join(ExternalCacheDir(home), spec.SHA256[:archiveSHAPrefixLen]+"-"+filepath.Base(spec.Source))
 		if err := dl(spec.Source, spec.SHA256, archive); err != nil {
 			return "", "", fmt.Errorf("download: %w", err)
 		}
-		staging := archive + ".unpacked"
+		// .riced.tmp.unpack matches the project-wide ".riced.tmp.<...>" tmp
+		// convention so `riced doctor` and orphan cleanup see this directory
+		// uniformly with the rest of the apply package.
+		staging := archive + ".riced.tmp.unpack"
 		if err := os.RemoveAll(staging); err != nil {
 			return "", "", fmt.Errorf("clean staging %s: %w", staging, err)
 		}
@@ -306,8 +338,12 @@ func iconsDataDir(home string) string {
 }
 
 // copyTreeOver copies src to dst, recursing into directories. Existing
-// files at dst are overwritten. Symlinks are preserved as symlinks.
+// files at dst are overwritten. Symlinks are absolutized (see body).
 // Used by the "extract" strategy to land theme dirs into ~/.local/share/icons/.
+//
+// Failure semantics: best-effort. A failure mid-copy leaves whatever
+// was already written at dst; the caller (executeLook's "extract") can
+// safely re-run because copyTreeOver overwrites existing entries.
 func copyTreeOver(src, dst string) error {
 	info, err := os.Lstat(src)
 	if err != nil {
@@ -318,6 +354,13 @@ func copyTreeOver(src, dst string) error {
 		target, err := os.Readlink(src)
 		if err != nil {
 			return err
+		}
+		// Relative symlinks resolve against their parent dir. After copy,
+		// dst's parent is different from src's parent, so a relative target
+		// would point at the wrong place. Convert to absolute before
+		// re-symlinking; absolute targets pass through unchanged.
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(filepath.Dir(src), target)
 		}
 		_ = os.Remove(dst)
 		return os.Symlink(target, dst)
