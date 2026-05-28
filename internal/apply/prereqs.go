@@ -29,6 +29,8 @@ var requiredTools = []toolRequirement{
 	{primary: "kpackagetool6"},                           // KPackageInstall (looks: kpackage strategy)
 	{primary: "kwriteconfig6"},                           // WriteINIKey, SetKonsoleDefaultProfile
 	{primary: "qdbus6", alternatives: []string{"qdbus"}}, // ReconfigureKWin, SetLauncherIcon
+	{primary: "tar"},                                     // extractArchive (.tar.gz / .tar.xz)
+	{primary: "unzip"},                                   // extractArchive (.zip)
 }
 
 // QDBusBin resolves the qdbus binary name once at package init. Plasma 6
