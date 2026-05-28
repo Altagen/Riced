@@ -383,12 +383,18 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 		})
 	}
 
-	// System-wide icon theme. Single kwriteconfig6 on kdeglobals.
+	// System-wide icon theme. Single kwriteconfig6 on kdeglobals, then a
+	// kbuildsycoca6 to make newly-launched apps pick up the change without
+	// requiring a log out / log in cycle.
 	if m.Icons.Theme != "" {
 		plan.Actions = append(plan.Actions, Action{
 			Kind: "kde",
 			Src:  "kwriteconfig6",
 			Args: []string{"kdeglobals", "Icons", "Theme", m.Icons.Theme},
+		})
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kbuildsycoca6",
 		})
 	}
 

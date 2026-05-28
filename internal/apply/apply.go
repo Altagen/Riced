@@ -251,6 +251,8 @@ func dispatchKDE(kde KDE, a Action) error {
 		// Match the trailing path so the resolved qdbus binary (qdbus6
 		// or qdbus, see prereqs.QDBusBin) routes to ReconfigureKWin.
 		return kde.ReconfigureKWin()
+	case a.Src == "kbuildsycoca6":
+		return kde.RefreshSystemCache()
 	}
 	return fmt.Errorf("unrecognized KDE action %q (args=%v)", a.Src, a.Args)
 }

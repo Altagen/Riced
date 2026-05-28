@@ -89,6 +89,13 @@ type KDE interface {
 	// (Plasma/*, KWin/*). Falls back to -u upgrade when -i errors on
 	// already-installed.
 	KPackageInstall(pkgType, sourcePath string) error
+
+	// RefreshSystemCache rebuilds KDE's ksycoca service cache via
+	// `kbuildsycoca6 --noincremental`. Called after a write that changes
+	// what KDE thinks is installed (e.g. icon theme switch in kdeglobals);
+	// without this newly-launched apps may keep serving the previous
+	// theme until the next login.
+	RefreshSystemCache() error
 }
 
 // RealKDE shells out to the canonical KDE helpers. Used by `riced apply`
@@ -300,6 +307,13 @@ func (k RealKDE) KPackageInstall(pkgType, sourcePath string) error {
 	return nil
 }
 
+// RefreshSystemCache rebuilds KDE's ksycoca. `--noincremental` forces a
+// full rebuild so newly-installed icon themes / look-and-feel packages
+// are visible to newly-launched apps right away.
+func (k RealKDE) RefreshSystemCache() error {
+	return k.run("kbuildsycoca6", "--noincremental")
+}
+
 // extractArchive expands a .tar.gz / .tar.xz / .zip archive into dst.
 // Shells out to tar / unzip (already-required system tools). Lives in
 // kde.go; called from external.go's resolveLookSource.
@@ -371,6 +385,7 @@ type FakeKDE struct {
 	DesktopThemeErr   error
 	LookAndFeelErr    error
 	KPackageErr       error
+	RefreshCacheErr   error
 }
 
 func (k *FakeKDE) ApplyColorScheme(slug string) error {
@@ -430,4 +445,9 @@ func (k *FakeKDE) ApplyLookAndFeel(packageID string) error {
 func (k *FakeKDE) KPackageInstall(pkgType, sourcePath string) error {
 	k.Calls = append(k.Calls, fmt.Sprintf("KPackageInstall:%s|%s", pkgType, sourcePath))
 	return k.KPackageErr
+}
+
+func (k *FakeKDE) RefreshSystemCache() error {
+	k.Calls = append(k.Calls, "RefreshSystemCache")
+	return k.RefreshCacheErr
 }

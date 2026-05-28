@@ -28,6 +28,7 @@ var requiredTools = []toolRequirement{
 	{primary: "plasma-apply-lookandfeel"},                // ApplyLookAndFeel
 	{primary: "kpackagetool6"},                           // KPackageInstall (looks: kpackage strategy)
 	{primary: "kwriteconfig6"},                           // WriteINIKey, SetKonsoleDefaultProfile
+	{primary: "kbuildsycoca6"},                           // RefreshSystemCache after icon theme change
 	{primary: "qdbus6", alternatives: []string{"qdbus"}}, // ReconfigureKWin, SetLauncherIcon
 	{primary: "tar"},                                     // extractArchive (.tar.gz / .tar.xz)
 	{primary: "unzip"},                                   // extractArchive (.zip)
