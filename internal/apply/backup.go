@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -63,9 +64,9 @@ func copyRegular(src, dst string) error {
 		return fmt.Errorf("create %s: %w", tmp, err)
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		closeErr := out.Close()
 		_ = os.Remove(tmp)
-		return fmt.Errorf("copy %s -> %s: %w", src, tmp, err)
+		return fmt.Errorf("copy %s -> %s: %w", src, tmp, errors.Join(err, closeErr))
 	}
 	if err := out.Close(); err != nil {
 		_ = os.Remove(tmp)
