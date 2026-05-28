@@ -62,9 +62,12 @@ jobs:
           cache: true
 
       - name: Generate Go SBOM
+        # Pinning to ^v1 of cyclonedx-gomod -- "latest" is not a valid
+        # semver range here and made the 0.1.0 release fail. ^v1 follows
+        # the upstream major (v1.x.y) without surprises.
         uses: CycloneDX/gh-gomod-generate-sbom@v2
         with:
-          version: latest
+          version: ^v1
           args: mod -licenses -json -output sbom-go-${{ github.ref_name }}.json
 
       - name: Checksum SBOM
