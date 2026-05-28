@@ -26,7 +26,7 @@ var requiredTools = []toolRequirement{
 	{primary: "plasma-apply-cursortheme"},                // ApplyCursorTheme
 	{primary: "plasma-apply-desktoptheme"},               // ApplyDesktopTheme
 	{primary: "plasma-apply-lookandfeel"},                // ApplyLookAndFeel
-	{primary: "kpackagetool6"},                           // InstallExternalPackage (kpackage types)
+	{primary: "kpackagetool6"},                           // KPackageInstall (looks: kpackage strategy)
 	{primary: "kwriteconfig6"},                           // WriteINIKey, SetKonsoleDefaultProfile
 	{primary: "qdbus6", alternatives: []string{"qdbus"}}, // ReconfigureKWin, SetLauncherIcon
 }

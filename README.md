@@ -106,6 +106,32 @@ match = "*"                          # fallback catch-all
 paths = ["wallpapers/default.png"]
 ```
 
+A theme that ships its own icons + cursor + global Plasma look:
+
+```toml
+# 1. Pull external assets first (sha256 verified, install.sh runs after wrapper strip)
+[[looks]]
+name    = "Tela Icons"
+type    = "icons"
+url     = "https://github.com/vinceliuice/Tela-icon-theme/archive/refs/tags/2025-02-10.tar.gz"
+sha256  = "b1f3e76e307bd48b17f0bf55d2f5a7ce9f445b127f427e11f79a632a79e3cf4f"
+install = "script"
+script  = "install.sh"
+args    = ["-d", "$HOME/.local/share/icons"]
+
+# 2. Optionally a Plasma Global Theme that bundles colorscheme + cursor + decoration
+[lookandfeel]
+package = "org.kde.breezedark.desktop"
+
+# 3. Per-field overrides take precedence over the Global Theme
+[icons]
+theme = "Tela-dark"
+[cursors]
+theme = "capitaine-cursors"
+[plasma]
+desktop_theme = "default"
+```
+
 Full schema reference: [`docs/MANIFEST.md`](docs/MANIFEST.md).
 
 ## Documentation

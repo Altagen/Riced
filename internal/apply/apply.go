@@ -23,13 +23,14 @@ type ExecOptions struct {
 	// state file. Default time.Now.UTC().
 	Now func() time.Time
 
-	// Download fetches external_packages archives + verifies their
+	// Download fetches [[looks]] archives (url source) + verifies their
 	// SHA-256. Default DefaultDownload (HTTPS + io.Copy). Tests set a
 	// stub to avoid network calls.
 	Download ExternalDownloader
 
-	// HomeDir is the user's home dir used to compute the external
-	// download cache path. Default os.UserHomeDir().
+	// HomeDir is the user's home dir used to compute the look download
+	// cache path and the ~/.riced/looks/ local-source directory.
+	// Default os.UserHomeDir().
 	HomeDir string
 }
 
