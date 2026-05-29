@@ -9,8 +9,8 @@ failure so the recipe is grounded, not theoretical.
 ## `[[looks]]` script install fails with `sudo: a terminal is required` and `cmake: command not found`
 
 **Symptom:** `riced apply` aborts mid-install with a wall of
-`sudo: il est nécessaire de saisir un mot de passe / a terminal is required`
-followed by the install script's own error
+`sudo: a terminal is required to read the password` (the exact phrasing
+varies by locale) followed by the install script's own error
 (`cmake: command not found`, `make: command not found`, etc.) and
 finally:
 
