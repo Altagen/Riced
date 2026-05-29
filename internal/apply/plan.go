@@ -401,6 +401,39 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 		})
 	}
 
+	// Plasma boot splash. Single key in ksplashrc; effect visible at the
+	// next session start (no reload mechanism for the currently-running
+	// session -- the splash only runs once per login).
+	if m.Splash.Theme != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kwriteconfig6",
+			Args: []string{"ksplashrc", "KSplash", "Theme", m.Splash.Theme},
+		})
+	}
+
+	// Qt widget style applied to every app launched after the apply
+	// (Breeze, kvantum, Oxygen, ...). Distinct from plasma.desktop_theme:
+	// widget style is "what apps look like", desktop theme is "what the
+	// panel + popups look like".
+	if m.WidgetStyle.Name != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kwriteconfig6",
+			Args: []string{"kdeglobals", "KDE", "widgetStyle", m.WidgetStyle.Name},
+		})
+	}
+
+	// Plasma notification popup anchor. CloseToWidget = "near system tray"
+	// (Plasma default); the rest are explicit screen anchors.
+	if m.Notifications.Position != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kwriteconfig6",
+			Args: []string{"plasmanotifyrc", "General", "PopupPosition", m.Notifications.Position},
+		})
+	}
+
 	// System-wide icon theme. Single kwriteconfig6 on kdeglobals, then a
 	// kbuildsycoca6 to make newly-launched apps pick up the change without
 	// requiring a log out / log in cycle.

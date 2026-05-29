@@ -248,7 +248,7 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
-	// --- icons / cursors / plasma / lookandfeel ----------------------------
+	// --- icons / cursors / plasma / lookandfeel / splash / widget_style ----
 	// Theme names are arbitrary directory names on the user's system; we
 	// only sanity-check non-empty (already implicit) and forbid path
 	// separators which would suggest the user typed a path by mistake.
@@ -257,10 +257,17 @@ func (m *Manifest) Validate() error {
 		"cursors.theme":        m.Cursors.Theme,
 		"plasma.desktop_theme": m.Plasma.DesktopTheme,
 		"lookandfeel.package":  m.LookAndFeel.Package,
+		"splash.theme":         m.Splash.Theme,
+		"widget_style.name":    m.WidgetStyle.Name,
 	} {
 		if val != "" && strings.ContainsAny(val, "/\\") {
 			add(field, fmt.Sprintf("%q looks like a path -- expected a theme name (directory under ~/.local/share/icons/ etc.)", val))
 		}
+	}
+
+	// --- notifications -----------------------------------------------------
+	if m.Notifications.Position != "" && !slices.Contains(AllowedNotificationPositions, m.Notifications.Position) {
+		add("notifications.position", fmt.Sprintf("%q not in %v", m.Notifications.Position, AllowedNotificationPositions))
 	}
 
 	// --- looks -------------------------------------------------------------

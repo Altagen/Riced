@@ -15,19 +15,22 @@ const CurrentSchemaVersion = 1
 // launcher icon) are interpreted relative to the directory containing
 // theme.toml. That directory is stored in Dir after a successful Load.
 type Manifest struct {
-	SchemaVersion int         `toml:"schema_version"`
-	Meta          Meta        `toml:"meta"`
-	Palette       Palette     `toml:"palette"`
-	Wallpapers    Wallpapers  `toml:"wallpapers"`
-	Panel         Panel       `toml:"panel"`
-	Window        Window      `toml:"window"`
-	Fonts         Fonts       `toml:"fonts"`
-	Terminal      Terminal    `toml:"terminal"`
-	Icons         Icons       `toml:"icons"`
-	Cursors       Cursors     `toml:"cursors"`
-	Plasma        Plasma      `toml:"plasma"`
-	LookAndFeel   LookAndFeel `toml:"lookandfeel"`
-	Looks         []Look      `toml:"looks"`
+	SchemaVersion int           `toml:"schema_version"`
+	Meta          Meta          `toml:"meta"`
+	Palette       Palette       `toml:"palette"`
+	Wallpapers    Wallpapers    `toml:"wallpapers"`
+	Panel         Panel         `toml:"panel"`
+	Window        Window        `toml:"window"`
+	Fonts         Fonts         `toml:"fonts"`
+	Terminal      Terminal      `toml:"terminal"`
+	Icons         Icons         `toml:"icons"`
+	Cursors       Cursors       `toml:"cursors"`
+	Plasma        Plasma        `toml:"plasma"`
+	Splash        Splash        `toml:"splash"`
+	WidgetStyle   WidgetStyle   `toml:"widget_style"`
+	Notifications Notifications `toml:"notifications"`
+	LookAndFeel   LookAndFeel   `toml:"lookandfeel"`
+	Looks         []Look        `toml:"looks"`
 
 	// Dir is the absolute path of the directory containing theme.toml.
 	// Set by Load; not serialized.
@@ -205,6 +208,30 @@ type Plasma struct {
 	DesktopTheme string `toml:"desktop_theme"`
 }
 
+// Splash sets the boot splash screen shown while Plasma loads. Written to
+// ~/.config/ksplashrc. Theme names match installed packages under
+// /usr/share/plasma/look-and-feel/<id>/contents/splash/ or the user's
+// data dir.
+type Splash struct {
+	Theme string `toml:"theme"`
+}
+
+// WidgetStyle is the Qt widget style applied to every app launched after
+// the manifest is applied (Breeze, kvantum, Oxygen, etc.). Written to
+// ~/.config/kdeglobals KDE/widgetStyle. Distinct from Plasma.DesktopTheme:
+// widget style is "what apps look like", desktop theme is "what the panel
+// + popups look like".
+type WidgetStyle struct {
+	Name string `toml:"name"`
+}
+
+// Notifications carries Plasma notification popup behavior. Position is
+// one of AllowedNotificationsPositions. Written to ~/.config/plasmanotifyrc
+// General/PopupPosition.
+type Notifications struct {
+	Position string `toml:"position"` // "TopRight" | "TopCenter" | "TopLeft" | "BottomRight" | "BottomCenter" | "BottomLeft" | "CloseToWidget"
+}
+
 // LookAndFeel switches Plasma's "Global Theme" -- a meta-package that
 // resets colorscheme, cursor, decoration, plasma theme and icons in one
 // shot. Riced applies it BEFORE the individual overrides so the
@@ -287,6 +314,15 @@ var AllowedLookInstallStrategies = []string{
 var (
 	AllowedModes          = []string{"dark", "light"}
 	AllowedWallpaperModes = []string{"single", "slideshow"}
+
+	// AllowedNotificationPositions matches the values plasmanotifyrc accepts
+	// for General/PopupPosition. CloseToWidget is the Plasma default
+	// ("near the system tray"); the rest are explicit screen anchors.
+	AllowedNotificationPositions = []string{
+		"TopRight", "TopCenter", "TopLeft",
+		"BottomRight", "BottomCenter", "BottomLeft",
+		"CloseToWidget",
+	}
 	AllowedPanelPositions = []string{"top", "bottom", "left", "right"}
 	AllowedDecorations    = []string{"klassy", "breeze"}
 	AllowedAnimations     = []string{"magic-lamp", "scale", "glide", "fade", "none"}

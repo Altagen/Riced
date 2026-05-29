@@ -1097,6 +1097,66 @@ func TestApply_F19LookLocalSource(t *testing.T) {
 	}
 }
 
+// TestApply_NewKDESurfaces covers the 0.1.4 XS additions: [splash],
+// [widget_style], [notifications] each emit a single kwriteconfig6
+// action when set, and nothing at all when unset. Three checks in one
+// test to keep the table compact.
+func TestApply_NewKDESurfaces(t *testing.T) {
+	t.Run("emitted when set", func(t *testing.T) {
+		env := setupFakeApply(t)
+		env.Manifest.Splash = manifest.Splash{Theme: "org.kde.breezedark"}
+		env.Manifest.WidgetStyle = manifest.WidgetStyle{Name: "kvantum-dark"}
+		env.Manifest.Notifications = manifest.Notifications{Position: "TopRight"}
+
+		plan, err := apply.Build(env.Manifest, env.BuildDir,
+			apply.Targets{HomeDir: env.Home},
+			apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+
+		want := map[string][]string{
+			"ksplashrc":      {"ksplashrc", "KSplash", "Theme", "org.kde.breezedark"},
+			"kdeglobals":     {"kdeglobals", "KDE", "widgetStyle", "kvantum-dark"},
+			"plasmanotifyrc": {"plasmanotifyrc", "General", "PopupPosition", "TopRight"},
+		}
+		seen := map[string]bool{}
+		for _, a := range plan.Actions {
+			if a.Kind != "kde" || a.Src != "kwriteconfig6" || len(a.Args) != 4 {
+				continue
+			}
+			if expect, ok := want[a.Args[0]]; ok && slices.Equal(a.Args, expect) {
+				seen[a.Args[0]] = true
+			}
+		}
+		for file := range want {
+			if !seen[file] {
+				t.Errorf("expected kwriteconfig6 for %s with args %v not found", file, want[file])
+			}
+		}
+	})
+
+	t.Run("omitted when empty", func(t *testing.T) {
+		env := setupFakeApply(t)
+		plan, _ := apply.Build(env.Manifest, env.BuildDir,
+			apply.Targets{HomeDir: env.Home},
+			apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+		for _, a := range plan.Actions {
+			if a.Kind != "kde" || a.Src != "kwriteconfig6" || len(a.Args) < 1 {
+				continue
+			}
+			if a.Args[0] == "ksplashrc" || a.Args[0] == "plasmanotifyrc" {
+				t.Errorf("%s should not be written when section is unset; got args %v", a.Args[0], a.Args)
+			}
+			// widget_style is in kdeglobals -- only flag the widgetStyle key,
+			// since Icons.Theme also writes to kdeglobals.
+			if a.Args[0] == "kdeglobals" && len(a.Args) >= 3 && a.Args[2] == "widgetStyle" {
+				t.Errorf("kdeglobals KDE/widgetStyle should not be written when WidgetStyle is unset")
+			}
+		}
+	})
+}
+
 // TestApply_PanelGeometryEmittedWhenSet checks that the 0.1.4 fix for
 // the previously-dead [panel] geometry fields is wired end-to-end:
 // position / floating / height in the manifest must produce a
