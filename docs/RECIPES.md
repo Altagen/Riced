@@ -115,7 +115,9 @@ theme dir is the inner one.
 ## Use a hand-installed C++ KWin decoration (Darkly, SierraBreezeEnhanced, ...)
 
 C++ KWin decorations need `cmake` + `sudo make install` -- well outside
-Riced's `[[looks]]` script install. The supported workflow is:
+Riced's `[[looks]]` script install. **Riced does not download or build
+these packages**; the supported workflow is install via your distro,
+then point Riced at the result:
 
 1. Install via your distro:
 
