@@ -63,6 +63,8 @@ func main() {
 		os.Exit(runRevert(rest))
 	case "switch":
 		os.Exit(runSwitch(rest))
+	case "schedule":
+		os.Exit(runSchedule(rest))
 	case "clean-backups":
 		os.Exit(runCleanBackups(rest))
 	case "doctor":
@@ -147,6 +149,8 @@ Commands:
   revert                            Undo the last apply (restore backups)
   switch    [--dry-run|--yes]       Toggle the currently-applied family theme
                                     between its dark and light variants
+  schedule  (install|list|uninstall)  Install systemd user timers that flip
+                                    a family theme on a day/night schedule
   clean-backups [--keep N|--older-than DUR]
                                     Garbage-collect ~/.riced/state/backup/
   doctor                            Audit the live state for inconsistencies
