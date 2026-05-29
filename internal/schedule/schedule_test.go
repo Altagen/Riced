@@ -61,8 +61,8 @@ func TestList_OnlyRicedTimers(t *testing.T) {
 		}
 	}
 	must("riced-mode-day-s4-red.timer")
-	must("riced-mode-night-s4-red.timer")  // not in the prefix List scans -> ignored
-	must("riced-mode-day-s4-red.service")  // service, not a timer -> ignored
+	must("riced-mode-night-s4-red.timer") // not in the prefix List scans -> ignored
+	must("riced-mode-day-s4-red.service") // service, not a timer -> ignored
 	must("riced-mode-day-mono.timer")
 	must("some-other-user.timer") // unrelated user timer -> ignored
 

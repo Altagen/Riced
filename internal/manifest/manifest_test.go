@@ -2,6 +2,7 @@ package manifest_test
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -190,6 +191,39 @@ func TestValidate_WallpapersScreensExclusivity(t *testing.T) {
 }
 
 func intPtr(v int) *int { return &v }
+
+// TestExamples_AllValidate is the dragnet for the docs/examples/* themes
+// the repo ships. Anything broken under examples/ ships as broken-on-the-
+// landing-page; this test makes sure that doesn't happen silently.
+func TestExamples_AllValidate(t *testing.T) {
+	entries, err := os.ReadDir("../../examples")
+	if err != nil {
+		t.Skipf("examples/ not present at repo root: %v", err)
+	}
+	any := false
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := "../../examples/" + e.Name()
+		if _, err := os.Stat(dir + "/theme.toml"); err != nil {
+			continue // not a theme dir
+		}
+		any = true
+		t.Run(e.Name(), func(t *testing.T) {
+			m, err := manifest.Load(dir)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if err := m.Validate(); err != nil {
+				t.Errorf("Validate: %v", err)
+			}
+		})
+	}
+	if !any {
+		t.Skip("no example theme directories found")
+	}
+}
 
 // TestMeta_ResolveModeSlug covers the 0.1.4 family-theme delegation logic.
 // IsFamily + ResolveModeSlug together determine whether `riced apply
