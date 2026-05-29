@@ -74,6 +74,79 @@ func TestKvantumSettings_RespectMode(t *testing.T) {
 	}
 }
 
+// TestKWinSettings_AuroraeDecoration covers the 0.1.4 extension: an
+// "aurorae:<name>" value must write library=org.kde.kwin.aurorae AND
+// the magic-prefixed theme key KWin reads. Without the theme entry KWin
+// silently falls back to the default aurorae, so both are required.
+func TestKWinSettings_AuroraeDecoration(t *testing.T) {
+	m := &manifest.Manifest{
+		Window: manifest.Window{Decoration: "aurorae:Catppuccin-Mocha-Maroon-Modern"},
+	}
+	entries := render.KWinSettings(m)
+	var lib, theme string
+	for _, e := range entries {
+		if e.Group != "org.kde.kdecoration2" {
+			continue
+		}
+		switch e.Key {
+		case "library":
+			lib = e.Value
+		case "theme":
+			theme = e.Value
+		}
+	}
+	if lib != "org.kde.kwin.aurorae" {
+		t.Errorf("library = %q, want org.kde.kwin.aurorae", lib)
+	}
+	wantTheme := "__aurorae__svg__Catppuccin-Mocha-Maroon-Modern"
+	if theme != wantTheme {
+		t.Errorf("theme = %q, want %q", theme, wantTheme)
+	}
+}
+
+// TestKWinSettings_OxygenDecoration is a tiny smoke test for the third
+// bare C++ library name we accept.
+func TestKWinSettings_OxygenDecoration(t *testing.T) {
+	m := &manifest.Manifest{Window: manifest.Window{Decoration: "oxygen"}}
+	entries := render.KWinSettings(m)
+	for _, e := range entries {
+		if e.Group == "org.kde.kdecoration2" && e.Key == "library" {
+			if e.Value != "org.kde.oxygen" {
+				t.Errorf("library = %q, want org.kde.oxygen", e.Value)
+			}
+			return
+		}
+	}
+	t.Errorf("library entry not emitted for decoration=oxygen")
+}
+
+// TestKWinSettings_LibraryEscapeHatch verifies the "library:<id>" passthrough
+// lets users target a hand-installed KWin decoration whose library id Riced
+// does not need to know about. No theme key is emitted -- C++ libraries
+// don't use one.
+func TestKWinSettings_LibraryEscapeHatch(t *testing.T) {
+	m := &manifest.Manifest{Window: manifest.Window{Decoration: "library:org.kde.experimental"}}
+	entries := render.KWinSettings(m)
+	var lib, theme string
+	for _, e := range entries {
+		if e.Group != "org.kde.kdecoration2" {
+			continue
+		}
+		switch e.Key {
+		case "library":
+			lib = e.Value
+		case "theme":
+			theme = e.Value
+		}
+	}
+	if lib != "org.kde.experimental" {
+		t.Errorf("library = %q, want org.kde.experimental", lib)
+	}
+	if theme != "" {
+		t.Errorf("theme should be empty for library: passthrough, got %q", theme)
+	}
+}
+
 func TestKlassySettings_OnlyWhenKlassy(t *testing.T) {
 	m := &manifest.Manifest{Window: manifest.Window{Decoration: "breeze"}}
 	if got := render.KlassySettings(m); len(got) != 0 {

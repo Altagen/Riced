@@ -200,7 +200,7 @@ func TestExamples_AllValidate(t *testing.T) {
 	if err != nil {
 		t.Skipf("examples/ not present at repo root: %v", err)
 	}
-	any := false
+	saw := false
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
@@ -209,7 +209,7 @@ func TestExamples_AllValidate(t *testing.T) {
 		if _, err := os.Stat(dir + "/theme.toml"); err != nil {
 			continue // not a theme dir
 		}
-		any = true
+		saw = true
 		t.Run(e.Name(), func(t *testing.T) {
 			m, err := manifest.Load(dir)
 			if err != nil {
@@ -220,7 +220,7 @@ func TestExamples_AllValidate(t *testing.T) {
 			}
 		})
 	}
-	if !any {
+	if !saw {
 		t.Skip("no example theme directories found")
 	}
 }

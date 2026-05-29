@@ -265,8 +265,10 @@ func (m *Manifest) Validate() error {
 	}
 
 	// --- window ------------------------------------------------------------
-	if m.Window.Decoration != "" && !slices.Contains(AllowedDecorations, m.Window.Decoration) {
-		add("window.decoration", fmt.Sprintf("%q not in %v", m.Window.Decoration, AllowedDecorations))
+	if m.Window.Decoration != "" {
+		if err := validateDecoration(m.Window.Decoration); err != nil {
+			add("window.decoration", err.Error())
+		}
 	}
 	if m.Window.Animations != "" && !slices.Contains(AllowedAnimations, m.Window.Animations) {
 		add("window.animations", fmt.Sprintf("%q not in %v", m.Window.Animations, AllowedAnimations))
@@ -438,6 +440,32 @@ func checkRelFileExists(base, p string) error {
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%q is not a regular file", p)
+	}
+	return nil
+}
+
+// validateDecoration checks the [window].decoration syntax: bare name in
+// AllowedDecorationBareNames, "aurorae:<theme-dir-name>" (no path
+// separators), or "library:<lib-id>" escape hatch. Returns nil when
+// well-formed.
+func validateDecoration(s string) error {
+	if name, ok := strings.CutPrefix(s, "aurorae:"); ok {
+		if name == "" {
+			return fmt.Errorf(`"aurorae:" requires a theme dir name (e.g. "aurorae:Catppuccin-Mocha-Maroon-Modern")`)
+		}
+		if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+			return fmt.Errorf("%q must be a single dir name (no path separators or '..')", name)
+		}
+		return nil
+	}
+	if lib, ok := strings.CutPrefix(s, "library:"); ok {
+		if lib == "" {
+			return fmt.Errorf(`"library:" requires a KWin decoration library id (e.g. "library:org.kde.someplugin")`)
+		}
+		return nil
+	}
+	if !slices.Contains(AllowedDecorationBareNames, s) {
+		return fmt.Errorf("%q is not a bare decoration name (%v); use \"aurorae:<theme>\" or \"library:<id>\"", s, AllowedDecorationBareNames)
 	}
 	return nil
 }

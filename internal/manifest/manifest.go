@@ -378,6 +378,10 @@ var (
 		"CloseToWidget",
 	}
 	AllowedPanelPositions = []string{"top", "bottom", "left", "right"}
-	AllowedDecorations    = []string{"klassy", "breeze"}
-	AllowedAnimations     = []string{"magic-lamp", "scale", "glide", "fade", "none"}
+	// AllowedDecorationBareNames enumerates the C++ KWin decoration libraries
+	// the validator accepts as bare values for [window].decoration. Other
+	// values must use the "aurorae:<name>" prefix (any installed aurorae
+	// theme) or the "library:org.kde.<x>" escape hatch.
+	AllowedDecorationBareNames = []string{"klassy", "breeze", "oxygen"}
+	AllowedAnimations          = []string{"magic-lamp", "scale", "glide", "fade", "none"}
 )
