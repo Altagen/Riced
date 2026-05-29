@@ -76,6 +76,8 @@ func Execute(plan *Plan, opts ExecOptions) (err error) {
 		}
 		state := &State{
 			Slug:       plan.Slug,
+			FamilySlug: plan.FamilySlug,
+			Mode:       plan.Mode,
 			Repo:       plan.Repo,
 			AppliedAt:  now(),
 			WrittenAt:  append([]string(nil), written...),

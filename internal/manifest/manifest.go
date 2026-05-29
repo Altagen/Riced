@@ -52,6 +52,60 @@ type Meta struct {
 	// merged in beneath this one. Resolved by manifest.ResolveDir, which
 	// walks the chain with cycle detection.
 	Inherits string `toml:"inherits"`
+
+	// Modes turns this manifest into a "family" theme: instead of carrying
+	// its own palette + wallpapers + etc., it points at two (or more)
+	// sibling themes that are picked based on the --mode CLI flag.
+	// `riced apply <family-slug> --mode=dark` delegates to Modes.Dark.
+	// `riced switch` consults state.toml + this table to toggle.
+	Modes ModeRefs `toml:"modes"`
+}
+
+// ModeRefs is the slug-delegation table inside [meta.modes]. Each non-empty
+// field points at another theme slug Riced resolves through the registry
+// when --mode is supplied. Default is the slug picked when --mode is not
+// given on the CLI.
+type ModeRefs struct {
+	Dark    string `toml:"dark"`
+	Light   string `toml:"light"`
+	Default string `toml:"default"` // "dark" | "light" -- picked when --mode is omitted
+}
+
+// IsFamily reports whether this Meta describes a family theme (delegates
+// to per-mode variants via Modes) rather than a concrete theme with its
+// own palette / wallpapers.
+func (m Meta) IsFamily() bool {
+	return m.Modes.Dark != "" || m.Modes.Light != ""
+}
+
+// ResolveModeSlug picks which sibling slug to apply for a family theme,
+// given the requested mode ("dark" / "light" / ""). When mode is empty,
+// falls back to Modes.Default. Returns ("", error) when the family is
+// malformed or the requested mode isn't declared.
+func (m Meta) ResolveModeSlug(requested string) (string, error) {
+	if !m.IsFamily() {
+		return "", fmt.Errorf("theme %q is not a family (no [meta.modes] table)", m.Slug)
+	}
+	mode := requested
+	if mode == "" {
+		mode = m.Modes.Default
+	}
+	if mode == "" {
+		return "", fmt.Errorf("theme %q has no [meta.modes].default and --mode was not given", m.Slug)
+	}
+	switch mode {
+	case "dark":
+		if m.Modes.Dark == "" {
+			return "", fmt.Errorf("theme %q has no dark variant declared", m.Slug)
+		}
+		return m.Modes.Dark, nil
+	case "light":
+		if m.Modes.Light == "" {
+			return "", fmt.Errorf("theme %q has no light variant declared", m.Slug)
+		}
+		return m.Modes.Light, nil
+	}
+	return "", fmt.Errorf("unknown mode %q (expected dark or light)", mode)
 }
 
 // Palette holds the named colors. All values are hex strings, either

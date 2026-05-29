@@ -59,6 +59,13 @@ type Plan struct {
 	Actions   []Action
 	StatePath string // ~/.riced/state/current.toml
 	BackupDir string // ~/.riced/state/backup/<timestamp>/
+
+	// FamilySlug + Mode are set by the CLI when the user typed a family
+	// theme slug (with [meta.modes]) and Riced resolved to a variant.
+	// Both surface in state.toml so `riced status` / `riced switch` can
+	// reason about the original intent.
+	FamilySlug string
+	Mode       string
 }
 
 // Targets is the mapping from a generated artifact (relative to BuildDir)

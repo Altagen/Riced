@@ -61,6 +61,8 @@ func main() {
 		os.Exit(runStatus(rest))
 	case "revert":
 		os.Exit(runRevert(rest))
+	case "switch":
+		os.Exit(runSwitch(rest))
 	case "clean-backups":
 		os.Exit(runCleanBackups(rest))
 	case "doctor":
@@ -137,11 +139,14 @@ Commands:
   repo add  <path>                  Register an already-initialized repository
   repo list                         Show registered repositories
   repo remove <name>                Unregister (files on disk are kept)
-  apply     [--dry-run|--yes] <slug>
+  apply     [--dry-run|--yes] [--mode=dark|light] <slug>
                                     Render + apply to the live KDE session
-                                    (flags must precede slug)
+                                    (--mode required for family themes with
+                                    [meta.modes]; flags must precede slug)
   status                            Show the currently-applied theme
   revert                            Undo the last apply (restore backups)
+  switch    [--dry-run|--yes]       Toggle the currently-applied family theme
+                                    between its dark and light variants
   clean-backups [--keep N|--older-than DUR]
                                     Garbage-collect ~/.riced/state/backup/
   doctor                            Audit the live state for inconsistencies
