@@ -64,6 +64,7 @@ Every line tagged `kde` in the apply plan maps to one of these adapter methods o
 | `set-wallpaper-slideshow <interval>` (Args = rule list) | `SetWallpaperSlideshow(rules, interval)` | `qdbus6 … evaluateScript "<JS>"` — walks `desktops()`, evaluates rules CSS-cascade-style per screen, writes `SlidePaths` / `SlideInterval` / `FillMode`. |
 | `qdbus6 org.kde.KWin /KWin reconfigure` | `ReconfigureKWin()` | `qdbus6 org.kde.KWin /KWin reconfigure` — picks up the `kwriteconfig6` edits. |
 | `kbuildsycoca6` | `RefreshSystemCache()` | `kbuildsycoca6 --noincremental` — emitted right after the `kdeglobals` `Icons/Theme` write so newly-launched apps see the new icon theme without a log out / log in. |
+| `set-panel-geometry` (since 0.1.4) | `SetPanelGeometry(location, floating, height)` | `qdbus6 … evaluateScript "<JS>"` — walks `panels()`, sets `panel.location` / `panel.floating` / `panel.height` per the `[panel]` section. Emitted when at least one of `position` or `height` is set (floating rides along when other knobs are set, since a bare `false` is indistinguishable from "unset"). |
 
 ### qdbus6 vs qdbus
 
@@ -174,6 +175,50 @@ All clear.
 ```
 
 Each line is one check. `issue` lines bump the exit code to 1; `warn` and `info` do not. Stale lock, missing declared files, corrupt state file, missing backup root all surface as issues. Backups older than 90 days surface as info hints (run `riced clean-backups`).
+
+## `riced switch` (since 0.1.4)
+
+```bash
+riced switch [--dry-run] [--yes]
+```
+
+Toggles the currently-applied family theme between its `dark` and `light` variants. Reads `state.toml` to find the family slug + current mode, flips the mode, and delegates straight to `riced apply --mode=<flipped> <family-slug>`. Refuses when:
+
+- no theme is applied yet (nothing to switch);
+- the current theme was applied directly without `--mode` (not a family variant — `state.family_slug` is empty).
+
+A typical session:
+
+```bash
+riced apply my-design --mode=dark    # initial apply via family
+riced switch                          # -> applies my-design --mode=light
+riced switch                          # -> back to dark
+```
+
+## `riced schedule` (since 0.1.4)
+
+```bash
+riced schedule install   <family-slug> --day HH:MM-HH:MM
+riced schedule list
+riced schedule uninstall <family-slug>
+```
+
+Installs a pair of **systemd user timers** (no sudo, no system unit) that flip a family theme on a day / night schedule. Files land under `$XDG_CONFIG_HOME/systemd/user/` as `riced-mode-day-<slug>.timer` + `.service` and `riced-mode-night-<slug>.timer` + `.service`. Each service runs `riced apply --yes --mode=<light|dark> <family-slug>` at the boundary hour.
+
+Times use systemd's `OnCalendar=` so DST and clock skew are handled by the system, not Riced. The absolute path of the running `riced` binary is baked into the service unit at install time so a later `$PATH` change doesn't break it.
+
+```bash
+# Light from 07:00, dark from 19:00
+riced schedule install my-design --day 07:00-19:00
+
+# Inspect what was installed
+systemctl --user list-timers riced-mode-*
+
+# Tear down
+riced schedule uninstall my-design
+```
+
+`riced schedule list` walks the unit dir for `riced-mode-day-*.timer` files and reports the family slugs found.
 
 ## `riced revert`
 

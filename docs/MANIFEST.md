@@ -191,7 +191,7 @@ launcher_icon = "icons/launcher.png"
 
 | Key | Type | Notes |
 |---|---|---|
-| `decoration` | string | `"klassy"` or `"breeze"`. Klassy must be installed (e.g. `paru -S klassy`). |
+| `decoration` | string | Three syntaxes (since 0.1.4): bare names `"klassy"` / `"breeze"` / `"oxygen"` for the C++ KWin libraries; `"aurorae:<theme-dir-name>"` for any aurorae SVG theme under `~/.local/share/aurorae/themes/`; `"library:<id>"` escape hatch to point at any hand-installed `org.kde.kdecoration2/3` plugin (`paru -S darkly` + `"library:org.kde.darkly"`). The library / theme keys are written under `[org.kde.kdecoration2]` in `kwinrc`; KWin reads it for Plasma 5 and 6. See [docs/RECIPES.md](RECIPES.md) for the install patterns. |
 | `animations` | string | `"magic-lamp"`, `"scale"`, `"glide"`, `"fade"`, or `"none"`. Only one is on at a time; Riced disables the others. |
 | `animation_speed` | int (0–6) | KWin's global animation slider position. `0` = instant, `3` = KDE default, `6` = very slow (~1 s cap). Optional; omit to leave the user's current value alone. |
 | `animation_duration_ms` | int (0–10000) | Per-effect duration override in milliseconds. Bypasses the slider cap. Written to `[Effect-<animations>] AnimationDuration` in `kwinrc`. Useful when the slider's `6` is still too fast for visual demos (try `2000`). |
@@ -247,6 +247,65 @@ opacity = 0.80
 | `[plasma]`  | `desktop_theme` | Plasma Style name (panel widgets, popups). Applied via `plasma-apply-desktoptheme`. |
 
 Each value is the theme's **installed directory name**, not a path. Theme must already exist on the system (or be brought in by an `[[looks]]` entry — see below).
+
+---
+
+## `[splash]`, `[widget_style]`, `[notifications]` (since 0.1.4)
+
+Three small surface additions, each one extra `kwriteconfig6` call.
+
+| Section | Key | Notes |
+|---|---|---|
+| `[splash]` | `theme` | Plasma boot splash theme (shown while Plasma loads). Written to `~/.config/ksplashrc` `KSplash/Theme`. Effect visible at the next session start, not during the current one. |
+| `[widget_style]` | `name` | Qt widget style applied to every app launched after the apply (`"Breeze"`, `"kvantum"`, `"kvantum-dark"`, `"Oxygen"`, ...). Written to `~/.config/kdeglobals` `KDE/widgetStyle`. Distinct from `[plasma].desktop_theme`: widget style is "how apps look inside their windows", desktop theme is "how the panel + popups look". |
+| `[notifications]` | `position` | Plasma notification popup anchor. One of: `"TopRight"`, `"TopCenter"`, `"TopLeft"`, `"BottomRight"`, `"BottomCenter"`, `"BottomLeft"`, `"CloseToWidget"` (Plasma default = near the system tray). Written to `~/.config/plasmanotifyrc` `General/PopupPosition`. |
+
+```toml
+[splash]
+theme = "Catppuccin-Mocha-Maroon"
+
+[widget_style]
+name = "kvantum-dark"
+
+[notifications]
+position = "TopRight"
+```
+
+---
+
+## Family themes via `[meta.modes]` (since 0.1.4)
+
+A "family" theme has no palette / wallpapers / icons of its own. Its `[meta.modes]` table just points at two sibling slugs — one for dark, one for light — and the CLI picks which one to apply at call time.
+
+```toml
+[meta]
+name = "My Design"
+slug = "my-design"
+
+[meta.modes]
+dark    = "my-design-dark"   # slug of the dark variant
+light   = "my-design-light"  # slug of the light variant
+default = "dark"             # picked when --mode is omitted
+```
+
+The two sibling themes (`my-design-dark` and `my-design-light`) live as full, independent manifests with their own palette, wallpapers, etc. — they are **not** inherited from the family file.
+
+Usage:
+
+```bash
+riced apply my-design --mode=light    # explicit
+riced apply my-design                 # uses meta.modes.default
+riced switch                          # toggles current family's sibling
+```
+
+Family-theme validation:
+
+- Validation **skips** the per-section requirements (no palette mandatory, no wallpapers mandatory) — a family is a delegation table.
+- Both `dark` and `light` may be omitted, but at least one must be present.
+- `default` accepts `"dark"` or `"light"` only.
+- The referenced slugs must be resolvable through the registry at apply time.
+
+See `examples/family/` and [docs/RECIPES.md](RECIPES.md#author-a-family-theme-that-toggles-between-dark-and-light).
 
 ```toml
 [icons]
