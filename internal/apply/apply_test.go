@@ -1097,6 +1097,73 @@ func TestApply_F19LookLocalSource(t *testing.T) {
 	}
 }
 
+// TestApply_PanelGeometryEmittedWhenSet checks that the 0.1.4 fix for
+// the previously-dead [panel] geometry fields is wired end-to-end:
+// position / floating / height in the manifest must produce a
+// set-panel-geometry action that the dispatcher routes to
+// KDE.SetPanelGeometry.
+func TestApply_PanelGeometryEmittedWhenSet(t *testing.T) {
+	env := setupFakeApply(t)
+	env.Manifest.Panel = manifest.Panel{
+		Position: "top",
+		Floating: true,
+		Height:   48,
+	}
+
+	plan, err := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var found *apply.Action
+	for i := range plan.Actions {
+		a := &plan.Actions[i]
+		if a.Kind == "kde" && a.Src == "set-panel-geometry" {
+			found = a
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("set-panel-geometry not in plan:\n%s", plan.Format())
+	}
+	wantArgs := []string{"top", "true", "48"}
+	if !slices.Equal(found.Args, wantArgs) {
+		t.Errorf("args = %v, want %v", found.Args, wantArgs)
+	}
+
+	if err := apply.Execute(plan, apply.ExecOptions{
+		KDE: env.KDE, Now: func() time.Time { return env.Now },
+	}); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !slices.Contains(env.KDE.Calls, "SetPanelGeometry:top|true|48") {
+		t.Errorf("FakeKDE.Calls missing SetPanelGeometry; got: %v", env.KDE.Calls)
+	}
+}
+
+// TestApply_PanelGeometryOmittedWhenEmpty checks the inverse: a manifest
+// without any [panel] geometry field must not emit set-panel-geometry.
+// Floating defaults to false (zero value) so we can't tell "unset" from
+// "explicit false" -- the plan only fires when position or height is set.
+func TestApply_PanelGeometryOmittedWhenEmpty(t *testing.T) {
+	env := setupFakeApply(t)
+	// Panel is zero value -- no position, no height, floating=false.
+
+	plan, err := apply.Build(env.Manifest, env.BuildDir,
+		apply.Targets{HomeDir: env.Home},
+		apply.StatePath(env.Home), apply.BackupRoot(env.Home, env.Now), nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	for _, a := range plan.Actions {
+		if a.Kind == "kde" && a.Src == "set-panel-geometry" {
+			t.Errorf("set-panel-geometry emitted for empty Panel:\n%s", plan.Format())
+		}
+	}
+}
+
 // TestApply_IconsTriggerSystemCacheRefresh covers task #141 / 0.1.3: after
 // kdeglobals receives an Icons/Theme write, the planner must emit a
 // kbuildsycoca6 action and Execute must dispatch it through

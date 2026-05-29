@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Altagen/Riced/internal/manifest"
@@ -365,6 +366,23 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 		plan.Actions = append(plan.Actions, Action{
 			Kind: "kde",
 			Src:  "set-launcher-icon " + launcherIconDst,
+		})
+	}
+
+	// Panel geometry: a single JS evaluateScript writes location / floating
+	// / height to every Plasma 6 panel. We emit the action only when the
+	// user expressed at least one of position or height -- floating alone
+	// (a bool) cannot distinguish "unset" from "explicit false" so it
+	// rides along when at least one of the other knobs is set.
+	if m.Panel.Position != "" || m.Panel.Height > 0 {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "set-panel-geometry",
+			Args: []string{
+				m.Panel.Position,
+				strconv.FormatBool(m.Panel.Floating),
+				strconv.Itoa(m.Panel.Height),
+			},
 		})
 	}
 

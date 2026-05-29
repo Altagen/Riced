@@ -253,6 +253,15 @@ func dispatchKDE(kde KDE, a Action) error {
 		return kde.ReconfigureKWin()
 	case a.Src == "kbuildsycoca6":
 		return kde.RefreshSystemCache()
+	case strings.HasPrefix(a.Src, "set-panel-geometry"):
+		// Args = [location, floating-bool, height-int]; trust plan.Build
+		// to send a well-formed tuple, but never crash on a short one.
+		if len(a.Args) != 3 {
+			return fmt.Errorf("set-panel-geometry expects 3 args, got %d (%v)", len(a.Args), a.Args)
+		}
+		floating := a.Args[1] == "true"
+		height, _ := strconv.Atoi(a.Args[2])
+		return kde.SetPanelGeometry(a.Args[0], floating, height)
 	}
 	return fmt.Errorf("unrecognized KDE action %q (args=%v)", a.Src, a.Args)
 }

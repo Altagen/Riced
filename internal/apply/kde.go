@@ -90,6 +90,13 @@ type KDE interface {
 	// already-installed.
 	KPackageInstall(pkgType, sourcePath string) error
 
+	// SetPanelGeometry updates location ("top"/"bottom"/"left"/"right"),
+	// floating, and height (px) across every Plasma 6 panel via the
+	// plasmashell scripting API. Fields with zero values are ignored, so
+	// the manifest's `[panel].position` / `floating` / `height` can be
+	// mixed-and-matched freely.
+	SetPanelGeometry(location string, floating bool, height int) error
+
 	// RefreshSystemCache rebuilds KDE's ksycoca service cache via
 	// `kbuildsycoca6 --noincremental`. Called after a write that changes
 	// what KDE thinks is installed (e.g. icon theme switch in kdeglobals);
@@ -247,6 +254,52 @@ func (k RealKDE) SetLauncherIcon(iconPath string) error {
 		"evaluateScript", script)
 }
 
+// panelGeometryScript writes the optional [panel] geometry knobs to every
+// Plasma 6 panel via the plasmashell scripting API. Empty / zero fields
+// pass through as JS empty strings and the script skips them, so a user
+// who only sets `position` does not see `floating` reset to false or
+// `height` reset to the Plasma default.
+//
+// Order of substitutions: location, floating, height (height is a numeric
+// string so a missing value reads as "0" -> skipped by the JS check).
+const panelGeometryScript = `
+var changed = 0;
+var ps = panels();
+for (var i = 0; i < ps.length; i++) {
+    var p = ps[i];
+    if (!p) continue;
+    if ("%s".length > 0) { p.location = "%s"; }
+    if ("%s".length > 0) { p.floating = (%s === "true"); }
+    if (%d > 0)          { p.height   = %d; }
+    changed++;
+}
+print("riced panel-geometry: " + changed + " panel(s) updated");
+`
+
+// SetPanelGeometry updates location / floating / height across every
+// Plasma 6 panel. Each field is opt-in: pass "" / false / 0 to leave the
+// corresponding property untouched.
+func (k RealKDE) SetPanelGeometry(location string, floating bool, height int) error {
+	loc := jsStringEscape(location)
+	floatStr := ""
+	if location != "" || floating || height > 0 {
+		// floating is only applied when the manifest mentioned the panel
+		// section at all; otherwise we cannot tell "user wants false" from
+		// "user said nothing". The plan layer guarantees we only emit a
+		// SetPanelGeometry action when the section is non-empty, so it is
+		// safe to forward the bool here.
+		if floating {
+			floatStr = "true"
+		} else {
+			floatStr = "false"
+		}
+	}
+	script := fmt.Sprintf(panelGeometryScript, loc, loc, floatStr, floatStr, height, height)
+	return k.runWithTimeout(kdeCallTimeout,
+		QDBusBin, "org.kde.plasmashell", "/PlasmaShell",
+		"evaluateScript", script)
+}
+
 // jsStringEscape escapes a path so it can be safely embedded inside a
 // JavaScript double-quoted string literal. Handles backslash, double
 // quote, newline, and carriage return. Newlines + CR are technically
@@ -386,6 +439,7 @@ type FakeKDE struct {
 	LookAndFeelErr    error
 	KPackageErr       error
 	RefreshCacheErr   error
+	PanelGeometryErr  error
 }
 
 func (k *FakeKDE) ApplyColorScheme(slug string) error {
@@ -450,4 +504,9 @@ func (k *FakeKDE) KPackageInstall(pkgType, sourcePath string) error {
 func (k *FakeKDE) RefreshSystemCache() error {
 	k.Calls = append(k.Calls, "RefreshSystemCache")
 	return k.RefreshCacheErr
+}
+
+func (k *FakeKDE) SetPanelGeometry(location string, floating bool, height int) error {
+	k.Calls = append(k.Calls, fmt.Sprintf("SetPanelGeometry:%s|%t|%d", location, floating, height))
+	return k.PanelGeometryErr
 }
