@@ -21,6 +21,6 @@ name = "Example Family"
 slug = "example-family"
 
 [meta.modes]
-dark    = "example-dark"   # slug of the dark variant
-light   = "example-light"  # slug of the light variant
-default = "dark"           # used when --mode is not given
+dark = "example-dark"   # slug of the dark variant
+light = "example-light" # slug of the light variant
+default = "dark"        # used when --mode is not given

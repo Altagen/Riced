@@ -13,17 +13,17 @@ slug = "minimal"
 mode = "dark"
 
 [palette]
-bg      = "#0e0e12"
+bg = "#0e0e12"
 surface = "#1a1a22"
-text    = "#e6e6ea"
+text = "#e6e6ea"
 subtext = "#a0a0ae"
-muted   = "#5e5e6e"
-accent  = "#7aa6ff"
+muted = "#5e5e6e"
+accent = "#7aa6ff"
 warning = "#ffcc00"
-error   = "#ff5050"
+error = "#ff5050"
 
 [fonts]
-ui   = "Inter"
+ui = "Inter"
 mono = "JetBrains Mono"
 
 [terminal]

@@ -32,14 +32,14 @@ package = "Catppuccin-Mocha-Maroon"
 # Our overrides start here. Anything not listed = inherits from the
 # look-and-feel above.
 [palette]
-bg      = "#0a0608"
+bg = "#0a0608"
 surface = "#11080a"
-text    = "#f0e8e8"
+text = "#f0e8e8"
 subtext = "#b8a0a4"
-muted   = "#605050"
-accent  = "#ff2a4b"
+muted = "#605050"
+accent = "#ff2a4b"
 warning = "#ffcc00"
-error   = "#ff5050"
+error = "#ff5050"
 
 [icons]
 theme = "Tela-dark"
