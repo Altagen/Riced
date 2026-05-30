@@ -21,6 +21,9 @@
     "icons": { "$ref": "#/$defs/Icons" },
     "cursors": { "$ref": "#/$defs/Cursors" },
     "plasma": { "$ref": "#/$defs/Plasma" },
+    "splash": { "$ref": "#/$defs/Splash" },
+    "widget_style": { "$ref": "#/$defs/WidgetStyle" },
+    "notifications": { "$ref": "#/$defs/Notifications" },
     "lookandfeel": { "$ref": "#/$defs/LookAndFeel" },
     "looks": {
       "type": "array",
@@ -59,6 +62,27 @@
         "inherits": {
           "type": "string",
           "description": "Slug of a parent theme whose fields are merged underneath this one. Parent is searched among siblings, then in ~/.riced/themes, then in registered repositories. Multi-level chains and cycle detection are supported."
+        },
+        "modes": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Family theme delegation (since 0.1.4). When set, this manifest carries no palette/wallpapers/etc. of its own; `riced apply <slug> --mode=dark|light` re-resolves to the named sibling slug.",
+          "properties": {
+            "dark": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug of the dark variant theme."
+            },
+            "light": {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+              "description": "Slug of the light variant theme."
+            },
+            "default": {
+              "enum": ["dark", "light"],
+              "description": "Variant picked when --mode is omitted on the CLI."
+            }
+          }
         }
       }
     },
@@ -192,8 +216,9 @@
       "description": "Window decoration + KWin compositor effects.",
       "properties": {
         "decoration": {
-          "enum": ["klassy", "breeze"],
-          "description": "Window decoration library. klassy must be installed via paru/yay; breeze ships with Plasma."
+          "type": "string",
+          "pattern": "^(klassy|breeze|oxygen|aurorae:[^/\\\\.][^/\\\\]*|library:.+)$",
+          "description": "Window decoration. Bare names: klassy / breeze / oxygen (native C++ KWin libraries). aurorae:<theme-dir-name> for an aurorae SVG theme under ~/.local/share/aurorae/themes/. library:<id> escape hatch to point at any hand-installed kdecoration2/3 plugin id (e.g. library:org.kde.darkly after paru -S darkly). See docs/RECIPES.md."
         },
         "animations": {
           "enum": ["magic-lamp", "scale", "glide", "fade", "none"],
@@ -289,6 +314,44 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9._-]+$",
           "description": "Plasma Style name (panel widgets, popups). As listed by `kpackagetool6 -t Plasma/Theme --list`. Applied via plasma-apply-desktoptheme."
+        }
+      }
+    },
+
+    "Splash": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plasma boot splash screen, shown while Plasma loads. Effect visible at the next session start (since 0.1.4).",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "description": "Splash theme directory name. Written to ~/.config/ksplashrc KSplash/Theme."
+        }
+      }
+    },
+
+    "WidgetStyle": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Qt widget style applied to every app launched after the apply. Distinct from plasma.desktop_theme (panel/popups). Since 0.1.4.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]+$",
+          "description": "Widget style name (Breeze, kvantum, kvantum-dark, Oxygen, ...). Written to ~/.config/kdeglobals KDE/widgetStyle."
+        }
+      }
+    },
+
+    "Notifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plasma notification popup anchor (since 0.1.4).",
+      "properties": {
+        "position": {
+          "enum": ["TopRight", "TopCenter", "TopLeft", "BottomRight", "BottomCenter", "BottomLeft", "CloseToWidget"],
+          "description": "Popup screen anchor. CloseToWidget = near the system tray (Plasma default). Written to ~/.config/plasmanotifyrc General/PopupPosition."
         }
       }
     },

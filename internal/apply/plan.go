@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Altagen/Riced/internal/manifest"
@@ -58,6 +59,13 @@ type Plan struct {
 	Actions   []Action
 	StatePath string // ~/.riced/state/current.toml
 	BackupDir string // ~/.riced/state/backup/<timestamp>/
+
+	// FamilySlug + Mode are set by the CLI when the user typed a family
+	// theme slug (with [meta.modes]) and Riced resolved to a variant.
+	// Both surface in state.toml so `riced status` / `riced switch` can
+	// reason about the original intent.
+	FamilySlug string
+	Mode       string
 }
 
 // Targets is the mapping from a generated artifact (relative to BuildDir)
@@ -368,6 +376,23 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 		})
 	}
 
+	// Panel geometry: a single JS evaluateScript writes location / floating
+	// / height to every Plasma 6 panel. We emit the action only when the
+	// user expressed at least one of position or height -- floating alone
+	// (a bool) cannot distinguish "unset" from "explicit false" so it
+	// rides along when at least one of the other knobs is set.
+	if m.Panel.Position != "" || m.Panel.Height > 0 {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "set-panel-geometry",
+			Args: []string{
+				m.Panel.Position,
+				strconv.FormatBool(m.Panel.Floating),
+				strconv.Itoa(m.Panel.Height),
+			},
+		})
+	}
+
 	// Lock screen wallpaper: kscreenlockerrc with deeply nested groups.
 	// WriteINIKey splits Group on "/" into multiple --group flags.
 	if lockWallpaperDst != "" {
@@ -380,6 +405,39 @@ func Build(m *manifest.Manifest, buildDir string, targets Targets, statePath, ba
 				"Image",
 				lockWallpaperDst,
 			},
+		})
+	}
+
+	// Plasma boot splash. Single key in ksplashrc; effect visible at the
+	// next session start (no reload mechanism for the currently-running
+	// session -- the splash only runs once per login).
+	if m.Splash.Theme != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kwriteconfig6",
+			Args: []string{"ksplashrc", "KSplash", "Theme", m.Splash.Theme},
+		})
+	}
+
+	// Qt widget style applied to every app launched after the apply
+	// (Breeze, kvantum, Oxygen, ...). Distinct from plasma.desktop_theme:
+	// widget style is "what apps look like", desktop theme is "what the
+	// panel + popups look like".
+	if m.WidgetStyle.Name != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kwriteconfig6",
+			Args: []string{"kdeglobals", "KDE", "widgetStyle", m.WidgetStyle.Name},
+		})
+	}
+
+	// Plasma notification popup anchor. CloseToWidget = "near system tray"
+	// (Plasma default); the rest are explicit screen anchors.
+	if m.Notifications.Position != "" {
+		plan.Actions = append(plan.Actions, Action{
+			Kind: "kde",
+			Src:  "kwriteconfig6",
+			Args: []string{"plasmanotifyrc", "General", "PopupPosition", m.Notifications.Position},
 		})
 	}
 

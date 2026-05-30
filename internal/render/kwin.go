@@ -2,6 +2,7 @@ package render
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/Altagen/Riced/internal/manifest"
 )
@@ -33,21 +34,26 @@ type INIEntry struct {
 func KWinSettings(m *manifest.Manifest) []INIEntry {
 	var out []INIEntry
 
-	// Window decoration library. "klassy" and "breeze" are the only values
-	// the schema currently allows; anything else gets skipped silently so
-	// future enum additions don't crash the renderer before validation
-	// catches them.
-	switch m.Window.Decoration {
-	case "klassy":
-		out = append(out, INIEntry{
-			File: "kwinrc", Group: "org.kde.kdecoration2",
-			Key: "library", Value: "org.kde.klassy",
-		})
-	case "breeze":
-		out = append(out, INIEntry{
-			File: "kwinrc", Group: "org.kde.kdecoration2",
-			Key: "library", Value: "org.kde.breeze",
-		})
+	// Window decoration library. Three syntaxes supported:
+	//
+	//   - Bare names: "klassy", "breeze", "oxygen" -> the matching native
+	//     C++ KWin decoration library (org.kde.<name>).
+	//   - "aurorae:<theme-name>" -> the aurorae SVG engine
+	//     (library=org.kde.kwin.aurorae) with the magic-prefixed theme key
+	//     KWin expects (__aurorae__svg__<theme-name>). The theme dir must
+	//     exist under ~/.local/share/aurorae/themes/ or /usr/share/aurorae/themes/.
+	//   - "library:org.kde.<x>" -> escape hatch for unknown C++ decorations
+	//     installed by hand. Passed through verbatim; no theme key written.
+	//
+	// Validation (in internal/manifest) catches malformed values before
+	// they reach this point; unknown values are skipped silently so a
+	// future schema addition doesn't crash the renderer first.
+	libEntry, themeEntry, ok := resolveDecoration(m.Window.Decoration)
+	if ok {
+		out = append(out, libEntry)
+		if themeEntry.Key != "" {
+			out = append(out, themeEntry)
+		}
 	}
 
 	// Blur + wobbly are simple toggles in [Plugins].
@@ -157,4 +163,33 @@ func boolStr(b bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+// resolveDecoration turns the manifest's [window].decoration value into
+// the (library, theme) INI tuple KWin needs. theme entry is zero when
+// the decoration is library-only (the C++ libs do not use the theme key).
+// ok reports whether the value was recognized -- callers should skip the
+// emission when ok is false (it's an unknown value the validator missed,
+// or an empty string).
+func resolveDecoration(decoration string) (lib INIEntry, theme INIEntry, ok bool) {
+	group := "org.kde.kdecoration2"
+	switch decoration {
+	case "":
+		return INIEntry{}, INIEntry{}, false
+	case "klassy":
+		return INIEntry{File: "kwinrc", Group: group, Key: "library", Value: "org.kde.klassy"}, INIEntry{}, true
+	case "breeze":
+		return INIEntry{File: "kwinrc", Group: group, Key: "library", Value: "org.kde.breeze"}, INIEntry{}, true
+	case "oxygen":
+		return INIEntry{File: "kwinrc", Group: group, Key: "library", Value: "org.kde.oxygen"}, INIEntry{}, true
+	}
+	if name, ok := strings.CutPrefix(decoration, "aurorae:"); ok {
+		return INIEntry{File: "kwinrc", Group: group, Key: "library", Value: "org.kde.kwin.aurorae"},
+			INIEntry{File: "kwinrc", Group: group, Key: "theme", Value: "__aurorae__svg__" + name},
+			true
+	}
+	if lib, ok := strings.CutPrefix(decoration, "library:"); ok {
+		return INIEntry{File: "kwinrc", Group: group, Key: "library", Value: lib}, INIEntry{}, true
+	}
+	return INIEntry{}, INIEntry{}, false
 }

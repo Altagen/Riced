@@ -1,0 +1,51 @@
+# Global Theme override example.
+#
+# Reuses an existing Plasma "Global Theme" (KDE Store / aurorae / install.sh
+# packages) as the visual base and then overrides the parts you want to
+# own. Apply order is deterministic:
+#
+#   1. apply-lookandfeel <package>           Plasma resets ALL fields
+#   2. plasma-apply-colorscheme <slug>       this manifest's palette wins
+#   3. kwriteconfig6 ... (kwinrc / klassyrc) decoration + animations win
+#   4. set-launcher-icon ...                 launcher icon wins
+#   5. kdeglobals Icons Theme + kbuildsycoca6 icons win
+#   6. apply-cursor-theme                    cursors win
+#   7. set-wallpaper-slideshow               wallpapers win
+#   8. qdbus6 KWin reconfigure
+#
+# Whatever section you *omit* from the manifest is inherited from the
+# Global Theme: drop [icons] to keep its icon set, drop [palette] to keep
+# its colors, etc.
+
+schema_version = 1
+
+[meta]
+name = "Catppuccin Mocha Maroon override"
+slug = "example-override"
+mode = "dark"
+
+# The "base" -- any installed Plasma 6 Global Theme directory name
+# (typically under ~/.local/share/plasma/look-and-feel/).
+[lookandfeel]
+package = "Catppuccin-Mocha-Maroon"
+
+# Our overrides start here. Anything not listed = inherits from the
+# look-and-feel above.
+[palette]
+bg = "#0a0608"
+surface = "#11080a"
+text = "#f0e8e8"
+subtext = "#b8a0a4"
+muted = "#605050"
+accent = "#ff2a4b"
+warning = "#ffcc00"
+error = "#ff5050"
+
+[icons]
+theme = "Tela-dark"
+
+[cursors]
+theme = "Catppuccin-Mocha-Maroon-Cursors"
+
+[terminal]
+opacity = 0.55

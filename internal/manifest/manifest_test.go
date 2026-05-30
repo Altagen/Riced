@@ -2,6 +2,7 @@ package manifest_test
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -190,6 +191,140 @@ func TestValidate_WallpapersScreensExclusivity(t *testing.T) {
 }
 
 func intPtr(v int) *int { return &v }
+
+// TestExamples_AllValidate is the dragnet for the docs/examples/* themes
+// the repo ships. Anything broken under examples/ ships as broken-on-the-
+// landing-page; this test makes sure that doesn't happen silently.
+func TestExamples_AllValidate(t *testing.T) {
+	entries, err := os.ReadDir("../../examples")
+	if err != nil {
+		t.Skipf("examples/ not present at repo root: %v", err)
+	}
+	saw := false
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := "../../examples/" + e.Name()
+		if _, err := os.Stat(dir + "/theme.toml"); err != nil {
+			continue // not a theme dir
+		}
+		saw = true
+		t.Run(e.Name(), func(t *testing.T) {
+			m, err := manifest.Load(dir)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if err := m.Validate(); err != nil {
+				t.Errorf("Validate: %v", err)
+			}
+		})
+	}
+	if !saw {
+		t.Skip("no example theme directories found")
+	}
+}
+
+// TestMeta_ResolveModeSlug covers the 0.1.4 family-theme delegation logic.
+// IsFamily + ResolveModeSlug together determine whether `riced apply
+// <slug> --mode=...` should fan out to a sibling variant, and what error
+// surfaces when the family is malformed or the mode is missing.
+func TestMeta_ResolveModeSlug(t *testing.T) {
+	cases := []struct {
+		name      string
+		meta      manifest.Meta
+		requested string
+		wantSlug  string
+		wantErr   string // substring expected in err.Error(); "" means no error
+	}{
+		{
+			name: "dark requested, both declared",
+			meta: manifest.Meta{
+				Slug: "s4-red",
+				Modes: manifest.ModeRefs{
+					Dark: "s4-red-dark", Light: "s4-red-light",
+				},
+			},
+			requested: "dark",
+			wantSlug:  "s4-red-dark",
+		},
+		{
+			name: "light requested, both declared",
+			meta: manifest.Meta{
+				Slug: "s4-red",
+				Modes: manifest.ModeRefs{
+					Dark: "s4-red-dark", Light: "s4-red-light",
+				},
+			},
+			requested: "light",
+			wantSlug:  "s4-red-light",
+		},
+		{
+			name: "no mode given, default=dark",
+			meta: manifest.Meta{
+				Slug: "s4-red",
+				Modes: manifest.ModeRefs{
+					Dark: "s4-red-dark", Light: "s4-red-light", Default: "dark",
+				},
+			},
+			requested: "",
+			wantSlug:  "s4-red-dark",
+		},
+		{
+			name: "no mode + no default = error",
+			meta: manifest.Meta{
+				Slug:  "s4-red",
+				Modes: manifest.ModeRefs{Dark: "s4-red-dark", Light: "s4-red-light"},
+			},
+			requested: "",
+			wantErr:   "no [meta.modes].default",
+		},
+		{
+			name: "dark requested but only light declared",
+			meta: manifest.Meta{
+				Slug:  "s4-red",
+				Modes: manifest.ModeRefs{Light: "s4-red-light"},
+			},
+			requested: "dark",
+			wantErr:   "no dark variant declared",
+		},
+		{
+			name:      "not a family",
+			meta:      manifest.Meta{Slug: "s4-dark"},
+			requested: "dark",
+			wantErr:   "is not a family",
+		},
+		{
+			name: "unknown mode value",
+			meta: manifest.Meta{
+				Slug:  "s4-red",
+				Modes: manifest.ModeRefs{Dark: "s4-red-dark", Light: "s4-red-light"},
+			},
+			requested: "high-contrast",
+			wantErr:   "unknown mode",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.meta.ResolveModeSlug(tc.requested)
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil (slug=%q)", tc.wantErr, got)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.wantSlug {
+				t.Errorf("slug = %q, want %q", got, tc.wantSlug)
+			}
+		})
+	}
+}
 
 // TestValidate_LookSHA256Hex covers the 0.1.3 V1 fix: looks.sha256 must
 // be a 64-char hex string. Pre-fix the validator only checked length,

@@ -34,9 +34,10 @@ func runApply(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "print the plan and exit, do not write anything")
 	yes := fs.Bool("yes", false, "skip the interactive confirmation prompt")
 	outOverride := fs.String("out", "", "override the build/cache directory (default ~/.riced/cache/<slug>/)")
+	mode := fs.String("mode", "", `"dark" or "light" -- required when <slug> is a family theme with [meta.modes]`)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = func() {
-		fmt.Fprint(os.Stderr, "Usage: riced apply [--dry-run] [--yes] [--out DIR] <slug>\n")
+		fmt.Fprint(os.Stderr, "Usage: riced apply [--dry-run] [--yes] [--mode=dark|light] [--out DIR] <slug>\n")
 		fmt.Fprint(os.Stderr, "(Flags must precede the slug -- stdlib flag parser stops at the first positional.)\n")
 		fs.PrintDefaults()
 	}
@@ -48,6 +49,10 @@ func runApply(args []string) int {
 		return exitUsage
 	}
 	slug := fs.Arg(0)
+	if *mode != "" && *mode != "dark" && *mode != "light" {
+		slog.Error("invalid --mode (expected dark or light)", "got", *mode)
+		return exitUsage
+	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -74,6 +79,41 @@ func runApply(args []string) int {
 		slog.Error("load manifest", "err", err)
 		return exitErr
 	}
+
+	// Family theme resolution: if the loaded manifest declares [meta.modes],
+	// delegate to one of its sibling slugs based on --mode (or the family's
+	// declared default). The CLI then re-resolves through the registry as
+	// if the user had typed the variant slug directly. familySlug is what
+	// the user originally typed -- we persist it in state for `switch`.
+	familySlug := ""
+	resolvedMode := ""
+	if m.Meta.IsFamily() {
+		variant, rerr := m.Meta.ResolveModeSlug(*mode)
+		if rerr != nil {
+			slog.Error("resolve family variant", "family", m.Meta.Slug, "err", rerr)
+			return exitErr
+		}
+		familySlug = m.Meta.Slug
+		resolvedMode = *mode
+		if resolvedMode == "" {
+			resolvedMode = m.Meta.Modes.Default
+		}
+		slog.Info("family theme: delegating to variant", "family", familySlug, "mode", resolvedMode, "variant", variant)
+		variantDir, ferr := src.FindTheme(variant)
+		if ferr != nil {
+			slog.Error("resolve variant slug", "variant", variant, "err", ferr)
+			return exitErr
+		}
+		m, err = manifest.ResolveDir(variantDir, []manifest.Source{src})
+		if err != nil {
+			slog.Error("load variant manifest", "err", err)
+			return exitErr
+		}
+	} else if *mode != "" {
+		slog.Error("--mode given but theme is not a family", "slug", m.Meta.Slug)
+		return exitUsage
+	}
+
 	if err := m.Validate(); err != nil {
 		emitValidationIssues(err)
 		return exitErr
@@ -125,6 +165,8 @@ func runApply(args []string) int {
 		return exitErr
 	}
 	plan.Repo = repoName
+	plan.FamilySlug = familySlug
+	plan.Mode = resolvedMode
 
 	// Show the plan.
 	fmt.Println(plan.Format())

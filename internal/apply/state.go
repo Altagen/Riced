@@ -24,6 +24,16 @@ type State struct {
 	AppliedAt  time.Time `toml:"applied_at"`
 	WrittenAt  []string  `toml:"written_at"`
 	BackupRoot string    `toml:"backup_root,omitempty"`
+
+	// FamilySlug, when set, is the [meta.modes] family theme the user
+	// originally typed (e.g. "s4-red"). Slug above is the resolved
+	// variant ("s4-red-dark"). Distinguishing the two lets `riced switch`
+	// and `riced status` print the family identity instead of the
+	// internal variant slug.
+	FamilySlug string `toml:"family_slug,omitempty"`
+	// Mode is "dark" or "light" when the apply came from a family theme.
+	// Empty for flat manifests.
+	Mode string `toml:"mode,omitempty"`
 }
 
 const stateSchema = 1

@@ -1,0 +1,30 @@
+# Minimal Riced theme.
+#
+# Pure palette + fonts, zero PNG asset. Copy this file, change the
+# colors, run `riced validate <dir>` then `riced apply <slug>`.
+# When wallpapers / icons / cursors / lookandfeel are omitted Riced
+# leaves whatever Plasma had configured untouched.
+
+schema_version = 1
+
+[meta]
+name = "Minimal"
+slug = "minimal"
+mode = "dark"
+
+[palette]
+bg = "#0e0e12"
+surface = "#1a1a22"
+text = "#e6e6ea"
+subtext = "#a0a0ae"
+muted = "#5e5e6e"
+accent = "#7aa6ff"
+warning = "#ffcc00"
+error = "#ff5050"
+
+[fonts]
+ui = "Inter"
+mono = "JetBrains Mono"
+
+[terminal]
+opacity = 0.85

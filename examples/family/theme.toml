@@ -1,0 +1,26 @@
+# Family theme example.
+#
+# A "family" theme has no palette / wallpapers / etc. of its own. Its
+# [meta.modes] table just points at two sibling themes -- one for dark,
+# one for light -- and `riced apply <family-slug> --mode=...` delegates
+# to the right one. `riced switch` toggles between them, and
+# `riced schedule install <family-slug> --day HH:MM-HH:MM` installs
+# systemd user timers that flip on a day/night cycle.
+#
+# Requirements:
+#   - The two sibling theme directories must exist and validate on their own
+#     (palette, wallpapers, etc.). They are NOT inherited from this file.
+#   - The slugs declared below must be resolvable through the registry,
+#     i.e. they live in this repository or a registered remote one.
+#   - You can omit [meta.modes].default if you want --mode to be mandatory.
+
+schema_version = 1
+
+[meta]
+name = "Example Family"
+slug = "example-family"
+
+[meta.modes]
+dark = "example-dark"   # slug of the dark variant
+light = "example-light" # slug of the light variant
+default = "dark"        # used when --mode is not given

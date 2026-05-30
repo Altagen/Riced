@@ -71,7 +71,44 @@ func (m *Manifest) Validate() error {
 		add("meta.mode", fmt.Sprintf("%q not in %v", m.Meta.Mode, AllowedModes))
 	}
 
+	// --- family theme short-circuit ----------------------------------------
+	// A family theme (with [meta.modes]) has no palette / wallpapers /
+	// fonts of its own; it's a slug-delegation table only. Validate the
+	// modes refs and exit -- running the per-section rules below would
+	// only produce misleading errors for sections the family is allowed
+	// to omit by design.
+	if m.Meta.IsFamily() {
+		if m.Meta.Modes.Dark == "" && m.Meta.Modes.Light == "" {
+			add("meta.modes", "family theme must declare at least one of dark / light")
+		}
+		if m.Meta.Modes.Default != "" && m.Meta.Modes.Default != "dark" && m.Meta.Modes.Default != "light" {
+			add("meta.modes.default", fmt.Sprintf("%q is not dark or light", m.Meta.Modes.Default))
+		}
+		// slug shape checks on the referenced variants -- they have to be
+		// resolvable, but resolution happens at apply time through the
+		// registry; here we only catch obvious typos.
+		for field, val := range map[string]string{
+			"meta.modes.dark":  m.Meta.Modes.Dark,
+			"meta.modes.light": m.Meta.Modes.Light,
+		} {
+			if val != "" && !slug.MatchString(val) {
+				add(field, fmt.Sprintf("%q is not a valid kebab-case slug", val))
+			}
+		}
+		if len(issues) > 0 {
+			return &ValidationError{Issues: issues}
+		}
+		return nil
+	}
+
 	// --- palette -----------------------------------------------------------
+	// Palette is only required when the theme does not delegate to a
+	// look-and-feel package: [lookandfeel] alone is enough to populate
+	// Plasma's colors, and the manifest can legally omit [palette] to
+	// inherit them. When [lookandfeel] is empty we still require the
+	// classic minimal set (bg, text, accent).
+	paletteRequired := m.LookAndFeel.Package == ""
+	_ = paletteRequired // currently consumed inline below
 	// Slice + ordered iteration so issue ordering is deterministic. Map
 	// iteration in Go is randomized; that would make `riced validate`
 	// output (and any test that snapshots it) non-reproducible.
@@ -92,7 +129,7 @@ func (m *Manifest) Validate() error {
 		{"palette.error", m.Palette.Error, false},
 	}
 	for _, pf := range paletteFields {
-		if pf.required && pf.value == "" {
+		if pf.required && paletteRequired && pf.value == "" {
 			add(pf.name, "is required")
 		}
 		if pf.value != "" && !hexColor.MatchString(pf.value) {
@@ -117,8 +154,15 @@ func (m *Manifest) Validate() error {
 	if m.Wallpapers.Mode == "single" && hasScreens {
 		add("wallpapers.screens", "only valid when mode = \"slideshow\"; use a flat `paths` list for single mode")
 	}
-	if len(m.Wallpapers.Paths) == 0 && !hasScreens {
-		add("wallpapers.paths", "must contain at least one wallpaper (or define [[wallpapers.screens]])")
+	// Wallpapers are only required when the user signalled intent: a Mode
+	// value, a Mirror flag, an explicit lock_image, or a non-empty
+	// [[screens]] list. A manifest that doesn't mention wallpapers at all
+	// is a valid "palette + fonts only" theme -- Plasma keeps its current
+	// wallpaper.
+	wallpapersIntended := m.Wallpapers.Mode != "" || m.Wallpapers.Mirror ||
+		m.Wallpapers.LockImage != ""
+	if wallpapersIntended && len(m.Wallpapers.Paths) == 0 && !hasScreens {
+		add("wallpapers.paths", "must contain at least one wallpaper (or define [[wallpapers.screens]]) when [wallpapers] is configured")
 	}
 	for i, p := range m.Wallpapers.Paths {
 		field := fmt.Sprintf("wallpapers.paths[%d]", i)
@@ -221,8 +265,10 @@ func (m *Manifest) Validate() error {
 	}
 
 	// --- window ------------------------------------------------------------
-	if m.Window.Decoration != "" && !slices.Contains(AllowedDecorations, m.Window.Decoration) {
-		add("window.decoration", fmt.Sprintf("%q not in %v", m.Window.Decoration, AllowedDecorations))
+	if m.Window.Decoration != "" {
+		if err := validateDecoration(m.Window.Decoration); err != nil {
+			add("window.decoration", err.Error())
+		}
 	}
 	if m.Window.Animations != "" && !slices.Contains(AllowedAnimations, m.Window.Animations) {
 		add("window.animations", fmt.Sprintf("%q not in %v", m.Window.Animations, AllowedAnimations))
@@ -248,7 +294,7 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
-	// --- icons / cursors / plasma / lookandfeel ----------------------------
+	// --- icons / cursors / plasma / lookandfeel / splash / widget_style ----
 	// Theme names are arbitrary directory names on the user's system; we
 	// only sanity-check non-empty (already implicit) and forbid path
 	// separators which would suggest the user typed a path by mistake.
@@ -257,10 +303,17 @@ func (m *Manifest) Validate() error {
 		"cursors.theme":        m.Cursors.Theme,
 		"plasma.desktop_theme": m.Plasma.DesktopTheme,
 		"lookandfeel.package":  m.LookAndFeel.Package,
+		"splash.theme":         m.Splash.Theme,
+		"widget_style.name":    m.WidgetStyle.Name,
 	} {
 		if val != "" && strings.ContainsAny(val, "/\\") {
 			add(field, fmt.Sprintf("%q looks like a path -- expected a theme name (directory under ~/.local/share/icons/ etc.)", val))
 		}
+	}
+
+	// --- notifications -----------------------------------------------------
+	if m.Notifications.Position != "" && !slices.Contains(AllowedNotificationPositions, m.Notifications.Position) {
+		add("notifications.position", fmt.Sprintf("%q not in %v", m.Notifications.Position, AllowedNotificationPositions))
 	}
 
 	// --- looks -------------------------------------------------------------
@@ -387,6 +440,32 @@ func checkRelFileExists(base, p string) error {
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%q is not a regular file", p)
+	}
+	return nil
+}
+
+// validateDecoration checks the [window].decoration syntax: bare name in
+// AllowedDecorationBareNames, "aurorae:<theme-dir-name>" (no path
+// separators), or "library:<lib-id>" escape hatch. Returns nil when
+// well-formed.
+func validateDecoration(s string) error {
+	if name, ok := strings.CutPrefix(s, "aurorae:"); ok {
+		if name == "" {
+			return fmt.Errorf(`"aurorae:" requires a theme dir name (e.g. "aurorae:Catppuccin-Mocha-Maroon-Modern")`)
+		}
+		if strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+			return fmt.Errorf("%q must be a single dir name (no path separators or '..')", name)
+		}
+		return nil
+	}
+	if lib, ok := strings.CutPrefix(s, "library:"); ok {
+		if lib == "" {
+			return fmt.Errorf(`"library:" requires a KWin decoration library id (e.g. "library:org.kde.someplugin")`)
+		}
+		return nil
+	}
+	if !slices.Contains(AllowedDecorationBareNames, s) {
+		return fmt.Errorf("%q is not a bare decoration name (%v); use \"aurorae:<theme>\" or \"library:<id>\"", s, AllowedDecorationBareNames)
 	}
 	return nil
 }
