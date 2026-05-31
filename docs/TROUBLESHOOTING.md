@@ -100,6 +100,47 @@ cache".
 
 ---
 
+## Launcher icon file was edited but Plasma still shows the old image
+
+**Symptom:** you edited the PNG / SVG that `[panel].launcher_icon` points
+at (same filename, new contents), re-ran `riced apply`, and the kickoff /
+kicker widget keeps displaying the previous artwork.
+
+**Diagnosis:** `riced apply` re-emits the `set-launcher-icon` JS, which
+writes the same config key with the same path and calls
+`reloadConfig()`. Plasma re-reads the key, but the icon pixmap itself is
+cached by `QIcon` keyed on `(path, size)`. The path is identical, so Qt
+serves the cached bitmap instead of re-reading the file.
+
+The path-stable cache is independent of the icon-theme cache
+(`kbuildsycoca6`) -- that one rebuilds the registry of installed
+themes, not in-process pixmap caches.
+
+**Fix:** force Plasma to drop the bitmap. Three options, lightest first:
+
+1. Remove Plasma's icon cache file and trigger a panel redraw:
+
+   ```bash
+   rm -f ~/.cache/icon-cache.kcache
+   ```
+
+   The next time the launcher widget paints, it re-reads the file.
+
+2. Restart plasmashell only (panel + desktop reload; open windows stay):
+
+   ```bash
+   kquitapp6 plasmashell && kstart plasmashell
+   ```
+
+3. Log out + log in for a fully clean state.
+
+A workaround that side-steps the cache: bump the file name on every
+edit (`s4-blue-neon-v2.png` instead of overwriting `s4-blue-neon.png`)
+and update `launcher_icon` accordingly. The path changes, Qt cannot
+hit its cache, the new bitmap loads on the next `riced apply`.
+
+---
+
 ## Aurorae decoration applied but window buttons unchanged
 
 **Symptom:** you set `[window].decoration = "aurorae:<theme>"`, apply,
